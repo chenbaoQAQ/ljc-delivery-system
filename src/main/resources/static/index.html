@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>老乡鸡配送审计看板 - 转置掩码版</title>
+    <title>老乡鸡配送审计看板 - 全量双视图版</title>
     <style>
         body { font-family: 'Microsoft YaHei', sans-serif; padding: 20px; background: #f4f7f9; }
         .card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 0 auto; max-width: 100%; overflow-x: auto;}
@@ -14,16 +14,20 @@
         .btn-blue { background: #3498db; }
         .btn-red { background: #e74c3c; }
         .btn-orange { background: #e67e22; }
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .btn-toggle { background: #6c5ce7; margin-left: 10px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
         th, td { border: 1px solid #edf2f7; padding: 8px 4px; text-align: center; min-width: 35px; }
         th { background: #f7fafc; color: #4a5568; position: sticky; top: 0; }
         .shop-col { position: sticky; left: 0; background: #fff; z-index: 5; font-weight: bold; border-right: 2px solid #3498db; width: 80px; }
         /* 标红样式 */
         .cell-error { background-color: #fff1f0 !important; color: #cf1322 !important; font-weight: bold; border: 1px solid #ffa39e !important; }
+        .text-error { color: #cf1322 !important; font-weight: bold; }
         #loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
-        .spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .pagination { margin-top: 15px; display: flex; justify-content: center; gap: 10px; }
+        .view-section { display: none; }
+        .view-section.active { display: block; }
     </style>
 </head>
 <body>
@@ -41,11 +45,20 @@
             月份：<input type="text" id="ym" value="2024-03" style="width:100px">
             <button class="btn btn-red" onclick="startAudit()">🚀 开始自动审计</button>
             <button class="btn btn-orange" onclick="startDetailView()">📋 原始明细表</button>
+            <button class="btn btn-toggle" id="btn-view-toggle" onclick="toggleAuditView()">切换到列表模式</button>
             <div style="flex-grow: 1;"></div>
             <input type="file" id="csv-file">
             <button class="btn btn-blue" style="background:#2ecc71" onclick="uploadCsv()">📥 导入 CSV</button>
         </div>
-        <div id="display-area" style="overflow: auto; max-height: 70vh;"></div>
+
+        <div id="view-matrix" class="view-section active" style="overflow: auto; max-height: 70vh;">
+            <p style="text-align:center; padding:50px; color:#999;">请点击“开始自动审计”加载数据</p>
+        </div>
+
+        <div id="view-summary" class="view-section" style="overflow: auto; max-height: 70vh;">
+            <p style="text-align:center; padding:50px; color:#999;">全量列表视图</p>
+        </div>
+
         <div class="pagination" id="pager" style="display:none;">
             <button class="btn btn-blue" onclick="pageNav(-1)">上一页</button>
             <span id="page-info"></span>
@@ -62,7 +75,7 @@
         <div id="editor-panel" style="display:none; border:2px solid #3498db; padding:20px; border-radius:8px; margin-top:10px; background:#fff;">
             <h3 id="editor-title">底板编辑</h3>
             <input type="hidden" id="edit-t-id">
-            底板标识(名字第一个字): <input type="text" id="t_name" placeholder="如: A-正常模板">
+            底板名称 (首字母为标识): <input type="text" id="t_name" placeholder="如: A-正常模板">
             <div id="day-inputs" style="display:grid; grid-template-columns: repeat(11, 1fr); gap:10px; margin:15px 0;"></div>
             <button class="btn btn-blue" onclick="submitTemplate()">💾 保存并更新</button>
             <button class="btn btn-red" onclick="document.getElementById('editor-panel').style.display='none'">取消</button>
@@ -73,6 +86,7 @@
 <script>
     const API = 'http://localhost:8181/api/status';
     let currentPage = 1, totalPages = 1, currentView = 'audit';
+    let auditSubView = 'matrix';
 
     function showLoader(v, t) {
         document.getElementById('loading-overlay').style.display = v ? 'flex' : 'none';
@@ -87,107 +101,99 @@
         if(t === 'manage') loadTemplateList();
     }
 
+    function toggleAuditView() {
+        const matrix = document.getElementById('view-matrix');
+        const summary = document.getElementById('view-summary');
+        const btn = document.getElementById('btn-view-toggle');
+
+        if (auditSubView === 'matrix') {
+            auditSubView = 'summary';
+            matrix.classList.remove('active');
+            summary.classList.add('active');
+            btn.innerText = "切换到看板模式";
+        } else {
+            auditSubView = 'matrix';
+            matrix.classList.add('active');
+            summary.classList.remove('active');
+            btn.innerText = "切换到列表模式";
+        }
+    }
+
     async function startAudit() { currentView = 'audit'; currentPage = 1; await loadAuditData(); }
     async function startDetailView() { currentView = 'details'; currentPage = 1; await loadDetailsData(); }
 
     async function loadAuditData() {
-        showLoader(true, "正在组装掩码数据...");
+        showLoader(true, "正在组装全量掩码数据...");
         const ym = document.getElementById('ym').value;
         const res = await fetch(`${API}/auto-report?yearMonth=${ym}&current=${currentPage}`);
         const data = await res.json();
 
-        let html = '<table><thead><tr><th class="shop-col">门店ID</th><th>建议底板</th>';
-        for(let d=1; d<=data.days; d++) html += `<th>${d<10?'0'+d:d}</th>`;
-        html += '</tr></thead><tbody>';
-
+        // 渲染大表看板
+        let mHtml = '<table><thead><tr><th class="shop-col">门店ID</th><th>建议底板</th>';
+        for(let d=1; d<=data.days; d++) mHtml += `<th>${d<10?'0'+d:d}</th>`;
+        mHtml += '</tr></thead><tbody>';
         data.records.forEach(row => {
-            html += `<tr><td class="shop-col">${row.shopId}</td><td style="color:#e67e22; font-size:10px">${row.bestTemplate}</td>`;
+            mHtml += `<tr><td class="shop-col">${row.shopId}</td><td style="color:#e67e22; font-size:10px">${row.bestTemplate}</td>`;
             for(let d=1; d<=data.days; d++) {
-                const isErr = row['isError' + d];
-                const displayVal = row['day' + d]; // 这里显示 0A/1B
-                html += `<td class="${isErr?'cell-error':''}">${displayVal}</td>`;
+                mHtml += `<td class="${row['isError'+d]?'cell-error':''}">${row['day'+d]}</td>`;
             }
-            html += '</tr>';
+            mHtml += '</tr>';
         });
-        document.getElementById('display-area').innerHTML = html + '</tbody></table>';
+        document.getElementById('view-matrix').innerHTML = mHtml + '</tbody></table>';
+
+        // 渲染全量纵向列表
+        let sHtml = '<table><thead><tr><th>门店 ID</th><th>日期</th><th>掩码状态(0A/1B)</th></tr></thead><tbody>';
+        data.auditSummary.forEach(item => {
+            // 如果 isError 为 true，给该行状态文字加红
+            const errorClass = item.isError ? 'text-error' : '';
+            sHtml += `<tr><td>${item.shopId}</td><td>${item.date}</td><td class="${errorClass}">${item.status}</td></tr>`;
+        });
+        document.getElementById('view-summary').innerHTML = sHtml + '</tbody></table>';
+
         totalPages = data.pages; updatePager(data); showLoader(false);
     }
 
     async function loadDetailsData() {
-        showLoader(true, "查看明细...");
+        showLoader(true, "查看原始明细...");
         const res = await fetch(`${API}/details?yearMonth=${document.getElementById('ym').value}&current=${currentPage}`);
         const data = await res.json();
         let html = '<table><thead><tr><th>日期</th><th>门店ID</th><th>SKU</th><th>数量</th></tr></thead><tbody>';
-        data.records.forEach(r => html += `<tr><td>${r.date}</td><td>${r.shopId}</td><td>${r.skuId}</td><td>${r.qty}</td></tr>`);
-        document.getElementById('display-area').innerHTML = html + '</tbody></table>';
+        (data.records||[]).forEach(r => html += `<tr><td>${r.date}</td><td>${r.shopId}</td><td>${r.skuId}</td><td>${r.qty}</td></tr>`);
+        document.getElementById('view-matrix').innerHTML = html + '</tbody></table>';
+        document.getElementById('view-matrix').classList.add('active');
+        document.getElementById('view-summary').classList.remove('active');
         totalPages = data.pages; updatePager(data); showLoader(false);
     }
 
-    function updatePager(d) {
-        document.getElementById('pager').style.display = 'flex';
-        document.getElementById('page-info').innerText = `第 ${d.current} / ${d.pages} 页`;
-    }
-
+    function updatePager(d) { document.getElementById('pager').style.display = 'flex'; document.getElementById('page-info').innerText = `第 ${d.current} / ${d.pages} 页`; }
     function pageNav(s) { if(currentPage+s>=1 && currentPage+s<=totalPages) { currentPage+=s; if(currentView==='audit') loadAuditData(); else loadDetailsData(); } }
 
     async function loadTemplateList() {
         const res = await fetch(`${API}/templates?yearMonth=${document.getElementById('m_ym').value}`);
         const list = await res.json();
         let html = '<table><tr><th>标识</th><th>底板全称</th><th>月份</th><th>操作</th></tr>';
-        list.forEach(t => {
-            html += `<tr><td style="font-weight:bold; color:#3498db">${t.templateName.substring(0,1)}</td>
-                <td>${t.templateName}</td><td>${t.yearMonth}</td>
-                <td><button onclick='editTemplate(${JSON.stringify(t)})'>编辑</button>
-                    <button onclick="deleteTemplate(${t.id})">删除</button></td></tr>`;
-        });
-        document.getElementById('template-list-container').innerHTML = html + (list.length ? '' : '<tr><td colspan="4">暂无底板</td></tr>') + '</table>';
+        list.forEach(t => html += `<tr><td><strong>${t.templateName.substring(0,1)}</strong></td><td>${t.templateName}</td><td>${t.yearMonth}</td><td><button onclick='editTemplate(${JSON.stringify(t)})'>编辑</button> <button onclick="deleteTemplate(${t.id})">删除</button></td></tr>`);
+        document.getElementById('template-list-container').innerHTML = html + '</table>';
     }
 
-    function editTemplate(t) {
-        document.getElementById('editor-panel').style.display = 'block';
-        document.getElementById('edit-t-id').value = t.id;
-        document.getElementById('t_name').value = t.templateName;
-        renderDayInputs(t.config.split(','));
-        window.scrollTo(0, document.body.scrollHeight);
-    }
-
-    function initNewTemplate() {
-        document.getElementById('editor-panel').style.display = 'block';
-        document.getElementById('edit-t-id').value = '';
-        document.getElementById('t_name').value = '';
-        renderDayInputs();
-    }
-
-    function renderDayInputs(config = null) {
-        let html = '';
-        for(let i=1; i<=31; i++) {
-            let val = config ? config[i-1] : '1';
-            html += `<div>${i}<br><input type="text" class="d-val" style="width:20px" value="${val}"></div>`;
-        }
-        document.getElementById('day-inputs').innerHTML = html;
-    }
+    function editTemplate(t) { document.getElementById('editor-panel').style.display='block'; document.getElementById('edit-t-id').value=t.id; document.getElementById('t_name').value=t.templateName; renderDayInputs(t.config.split(',')); }
+    function initNewTemplate() { document.getElementById('editor-panel').style.display='block'; document.getElementById('edit-t-id').value=''; document.getElementById('t_name').value=''; renderDayInputs(); }
+    function renderDayInputs(c=null) { let h=''; for(let i=1; i<=31; i++) h+=`<div>${i}<br><input type="text" class="d-val" style="width:20px" value="${c?c[i-1]:'1'}"></div>`; document.getElementById('day-inputs').innerHTML=h; }
 
     async function submitTemplate() {
-        const body = {
-            id: document.getElementById('edit-t-id').value || null,
-            templateName: document.getElementById('t_name').value,
-            yearMonth: document.getElementById('m_ym').value,
-            config: Array.from(document.querySelectorAll('.d-val')).map(i => i.value).join(',')
-        };
-        await fetch(`${API}/template`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+        const body = { id: document.getElementById('edit-t-id').value||null, templateName: document.getElementById('t_name').value, yearMonth: document.getElementById('m_ym').value, config: Array.from(document.querySelectorAll('.d-val')).map(i=>i.value).join(',') };
+        await fetch(`${API}/template`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
         alert("底板已更新"); document.getElementById('editor-panel').style.display='none'; loadTemplateList();
     }
 
-    async function deleteTemplate(id) { if(confirm("确定删除？")) { await fetch(`${API}/template/${id}`, { method: 'DELETE' }); loadTemplateList(); } }
+    async function deleteTemplate(id) { if(confirm("确定删除？")) { await fetch(`${API}/template/${id}`, {method:'DELETE'}); loadTemplateList(); } }
 
     async function uploadCsv() {
-        showLoader(true, "导入中...");
-        const fd = new FormData();
-        fd.append("file", document.getElementById('csv-file').files[0]);
-        fd.append("yearMonth", document.getElementById('ym').value);
-        const res = await fetch(`${API}/upload-csv`, { method: 'POST', body: fd });
+        showLoader(true, "🚀 导入中...");
+        const fd = new FormData(); fd.append("file", document.getElementById('csv-file').files[0]); fd.append("yearMonth", document.getElementById('ym').value);
+        const res = await fetch(`${API}/upload-csv`, { method:'POST', body:fd });
         const r = await res.json();
-        if(r.status==='SUCCESS') { alert("数据已导入"); startAudit(); } else { alert("导入失败"); showLoader(false); }
+        if(r.status==='SUCCESS') { alert("数据已导入"); startAudit(); } else { alert("失败"); showLoader(false); }
     }
 </script>
 </body>

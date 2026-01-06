@@ -44,7 +44,6 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
         List<DeliveryTemplate> templates = getTemplatesByMonth(yearMonth);
         List<Map<String, Object>> allDetails = baseMapper.selectMonthlyDeliveryStatus(yearMonth);
 
-        // 门店数据索引 Map<shopId, Map<day, qty>>
         Map<String, Map<Integer, Integer>> shopData = new HashMap<>();
         for (Map<String, Object> m : allDetails) {
             String sid = m.get("shopId").toString();
@@ -56,12 +55,12 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
         Collections.sort(allShopIds);
 
         int total = allShopIds.size();
-        int pages = (int) Math.ceil((double) total / size);
         int start = (current - 1) * size;
         int end = Math.min(start + size, total);
         List<String> pagedShopIds = (start < total) ? allShopIds.subList(start, end) : new ArrayList<>();
 
         List<Map<String, Object>> records = new ArrayList<>();
+        List<Map<String, Object>> auditSummary = new ArrayList<>(); // 全量汇总清单
         int daysInMonth = LocalDate.parse(yearMonth + "-01").lengthOfMonth();
 
         for (String sid : pagedShopIds) {
@@ -69,7 +68,6 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("shopId", sid);
 
-            // 寻找最匹配模板
             DeliveryTemplate bestT = null;
             int minDiff = Integer.MAX_VALUE;
             for (DeliveryTemplate t : templates) {
@@ -84,31 +82,36 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
                 if (diff < minDiff) { minDiff = diff; bestT = t; }
             }
 
-            // 提取模板名称首字母作为标识
-            String signLetter = (bestT != null && !bestT.getTemplateName().isEmpty())
-                    ? bestT.getTemplateName().substring(0, 1) : "?";
-            row.put("bestTemplate", bestT != null ? bestT.getTemplateName() : "无匹配");
+            String sign = (bestT != null && !bestT.getTemplateName().isEmpty()) ? bestT.getTemplateName().substring(0, 1) : "?";
+            row.put("bestTemplate", bestT != null ? bestT.getTemplateName() : "无");
 
             String[] bestCfg = (bestT != null) ? bestT.getConfig().split(",") : new String[daysInMonth];
             for (int d = 1; d <= daysInMonth; d++) {
-                int actualQty = dailyActual.getOrDefault(d, 0);
-                int actualStatus = actualQty > 0 ? 1 : 0; // 大于0统一按1处理
+                int actualStatus = dailyActual.getOrDefault(d, 0) > 0 ? 1 : 0;
                 int shouldStatus = (bestT != null && d <= bestCfg.length) ? Integer.parseInt(bestCfg[d-1].trim()) : 0;
 
-                // 组装掩码：0A / 1A 这种格式
-                row.put("day" + d, actualStatus + signLetter);
+                String statusWithSign = actualStatus + sign;
+                row.put("day" + d, statusWithSign);
+                boolean isError = actualStatus != shouldStatus;
+                row.put("isError" + d, isError);
 
-                // 只有状态不一致时才标红
-                row.put("isError" + d, actualStatus != shouldStatus);
+                // 全量列出：每一天的数据都进入汇总表
+                Map<String, Object> summaryItem = new HashMap<>();
+                summaryItem.put("shopId", sid);
+                summaryItem.put("date", yearMonth + "-" + String.format("%02d", d));
+                summaryItem.put("status", statusWithSign);
+                summaryItem.put("isError", isError); // 传给前端用于高亮
+                auditSummary.add(summaryItem);
             }
             records.add(row);
         }
 
         Map<String, Object> res = new HashMap<>();
         res.put("records", records);
+        res.put("auditSummary", auditSummary);
         res.put("days", daysInMonth);
         res.put("total", total);
-        res.put("pages", pages);
+        res.put("pages", (int) Math.ceil((double) total / size));
         res.put("current", current);
         return res;
     }
