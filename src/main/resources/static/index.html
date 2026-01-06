@@ -177,7 +177,7 @@
         fd.append("yearMonth", ym);
 
         const loading = document.getElementById('loading');
-        loading.innerText = "🚀 正在处理百万级数据入库，请勿刷新页面...";
+        loading.innerText = "🚀 正在处理数据入库，请勿刷新页面...";
         loading.style.display = 'block';
 
         try {
@@ -185,7 +185,7 @@
             const resultText = await res.text();
 
             if (resultText.includes("SUCCESS")) {
-                alert("导入成功！100万级数据已同步至数据库并自动分配UUID批次。");
+                alert("导入成功！数据已同步至数据库并自动分配UUID批次。");
                 fileInput.value = ""; // 清空文件选择
                 changeView('details'); // 自动跳转到明细表查看
             } else {

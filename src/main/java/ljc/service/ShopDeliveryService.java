@@ -23,170 +23,160 @@ import java.util.stream.Collectors;
 public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, DeliveryDetail> {
 
     @Autowired
-    private DeliveryDetailMapper detailMapper;
-
-    @Autowired
     private ShopDeliveryStatusMapper statusMapper;
 
     /**
-     * 门店状态表逻辑 (纵向列表样式)
-     * 逻辑：shopid | date | status (0A, 1B, C 等)
+     * 1. 门店状态表 (高性能版)
      */
     public Map<String, Object> getShopStatusReport(String yearMonth, int current, int size) {
-        // 1. 获取当月所有的底稿状态 (0, 1, 9, C)
-        List<ShopDeliveryStatus> baseStatuses = statusMapper.selectList(
+        // 1. 分页查底稿：这一步是为了确定“这一页我们要显示哪些店、哪些天”
+        Page<ShopDeliveryStatus> page = new Page<>(current, size);
+        IPage<ShopDeliveryStatus> statusPage = statusMapper.selectPage(page,
                 new LambdaQueryWrapper<ShopDeliveryStatus>()
                         .apply("DATE_FORMAT(date, '%Y-%m') = {0}", yearMonth)
-                        .orderByAsc(ShopDeliveryStatus::getShopId, ShopDeliveryStatus::getDate)
-        );
+                        .orderByAsc(ShopDeliveryStatus::getShopId, ShopDeliveryStatus::getDate));
 
-        // 2. 获取当月实际配送汇总 (从百万级明细中聚合)
-        List<Map<String, Object>> deliverySummary = detailMapper.selectMonthlyDeliveryStatus(yearMonth);
-        // 转为 Map 方便查询: "shopId_date" -> hasDelivery(boolean)
-        Set<String> deliveryKeySet = deliverySummary.stream()
-                .filter(m -> ((Number) m.get("totalQty")).intValue() > 0)
-                .map(m -> m.get("shop_id").toString() + "_" + m.get("date").toString())
+        if (statusPage.getRecords().isEmpty()) {
+            Map<String, Object> emptyRes = new HashMap<>();
+            emptyRes.put("records", new ArrayList<>());
+            emptyRes.put("total", 0);
+            return emptyRes;
+        }
+
+        // 2. 收集当前页出现的门店 ID
+        List<String> shopIds = statusPage.getRecords().stream()
+                .map(ShopDeliveryStatus::getShopId)
+                .distinct()
+                .collect(Collectors.toList());
+
+        // 3. 核心优化：去明细表里只查这几个店的汇总（局部聚合）
+        // 注意：这里的 baseMapper 实际上就是 detailMapper
+        List<Map<String, Object>> deliverySummary = baseMapper.selectMonthlySummaryByShops(yearMonth, shopIds);
+
+        // 4. 将汇总结果转成 Set 方便快速对比： "门店ID_日期" 这种格式
+        Set<String> hasDeliverySet = deliverySummary.stream()
+                .filter(m -> m.get("totalQty") != null && Double.parseDouble(m.get("totalQty").toString()) > 0)
+                .map(m -> m.get("shopId").toString() + "_" + m.get("date").toString())
                 .collect(Collectors.toSet());
 
-        // 3. 组装最终状态
-        List<Map<String, Object>> fullList = new ArrayList<>();
-        for (ShopDeliveryStatus sds : baseStatuses) {
-            String base = sds.getShopStatus(); // 获取底稿状态，例如 "0A" 或 "1"
+        // 5. 遍历底稿，根据是否有明细来拼 A 或 B
+        List<Map<String, Object>> records = new ArrayList<>();
+        for (ShopDeliveryStatus sds : statusPage.getRecords()) {
+            String base = sds.getShopStatus(); // 比如数据库里存的是 "0" 或 "1"
             String key = sds.getShopId() + "_" + sds.getDate().toString();
 
             String finalStatus;
-            if ("C".equalsIgnoreCase(base) || (base != null && base.contains("C"))) {
-                finalStatus = "C"; // 状态不正常
+            if (base != null && base.toUpperCase().contains("C")) {
+                finalStatus = "C"; // C 状态特殊处理
             } else {
-                // 核心修复逻辑：只取第一个字符作为基础数字 (0, 1, 9)
-                // 这样即便数据库存的是 "0A"，我们也只拿 "0"
-                String prefix = (base != null && base.length() > 0) ? base.substring(0, 1) : "";
-
-                // 判断今日是否有配送：有则拼 A，无则拼 B
-                String suffix = deliveryKeySet.contains(key) ? "A" : "B";
-                finalStatus = prefix + suffix;
+                // 取底稿第一个数字，有配送拼 A，没配送拼 B
+                String prefix = (base != null && !base.isEmpty()) ? base.substring(0, 1) : "0";
+                finalStatus = prefix + (hasDeliverySet.contains(key) ? "A" : "B");
             }
 
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("shopId", sds.getShopId());
             row.put("date", sds.getDate().toString());
             row.put("status", finalStatus);
-            fullList.add(row);
+            records.add(row);
         }
 
-        // 4. 手动分页处理 (状态表行数 = 门店数 * 天数)
-        int total = fullList.size();
-        int start = (current - 1) * size;
-        int end = Math.min(start + size, total);
-        List<Map<String, Object>> pagedList = (start < total) ? fullList.subList(start, end) : new ArrayList<>();
-
+        // 6. 返回给前端
         Map<String, Object> res = new HashMap<>();
-        res.put("records", pagedList);
-        res.put("total", total);
-        res.put("pages", (int) Math.ceil((double) total / size));
+        res.put("records", records);
+        res.put("total", statusPage.getTotal());
+        res.put("pages", statusPage.getPages());
         res.put("current", current);
         return res;
     }
 
     /**
-     * 原始明细分页保持不变
+     * 2. 原始明细分页 (保持高效)
      */
     public IPage<DeliveryDetail> getDetailPage(String yearMonth, int current, int size) {
         return this.page(new Page<>(current, size), new LambdaQueryWrapper<DeliveryDetail>()
                 .likeRight(DeliveryDetail::getDate, yearMonth).orderByAsc(DeliveryDetail::getDate));
     }
-    /**
-     * 导入 CSV (覆盖模式)
-     * 增加 yearMonth 参数，确保导入前清理旧数据
-     */
-    @Transactional(rollbackFor = Exception.class)
-    public void importCsv(InputStream is, String yearMonth) throws Exception {
-        // 1. 生成本次上传的唯一版本号 (UUID)
-        String currentBatchNo = UUID.randomUUID().toString();
-
-        // 2. 幂等性处理：依然先清理该月份数据（如果你想做“全量覆盖”）
-        detailMapper.delete(new LambdaQueryWrapper<DeliveryDetail>()
-                .likeRight(DeliveryDetail::getDate, yearMonth));
-
-        BufferedReader r = new BufferedReader(new InputStreamReader(is, "UTF-8"), 1024 * 1024);
-        String l;
-        r.readLine();
-
-        List<DeliveryDetail> batch = new ArrayList<>();
-        while ((l = r.readLine()) != null) {
-            String[] d = l.split(",");
-            if (d.length < 4) continue;
-
-            DeliveryDetail item = new DeliveryDetail();
-            item.setShopId(d[0].trim());
-            item.setSkuId(d[1].trim());
-            item.setQty(Integer.parseInt(d[2].trim()));
-            item.setDate(LocalDate.parse(d[3].trim()));
-
-            // 核心修改：给每一条明细贴上本次上传的“身份证”
-            item.setBatchNo(currentBatchNo);
-
-            batch.add(item);
-            if (batch.size() >= 1000) {
-                this.saveBatch(batch);
-                batch.clear();
-            }
-        }
-        if (!batch.isEmpty()) {
-            this.saveBatch(batch);
-        }
-        System.out.println("本次成功导入批次号：" + currentBatchNo);
-    }
 
     /**
-     * 3. 异常门店报表：找出在 CSV 中有数据但在底稿状态表中未定义的门店
+     * 3. 异常门店报表 (逻辑修正)
+     * 逻辑：找出当月在 CSV 里有货，但在底稿里没定义的店
      */
     public Map<String, Object> getExceptionReport(String yearMonth, int current, int size) {
-        // 1. 获取当月底稿中定义的所有门店 ID
-        Set<String> definedShopIds = statusMapper.selectList(
-                new LambdaQueryWrapper<ShopDeliveryStatus>()
-                        .apply("DATE_FORMAT(date, '%Y-%m') = {0}", yearMonth)
-        ).stream().map(ShopDeliveryStatus::getShopId).collect(Collectors.toSet());
+        // 获取当月所有定义的店
+        Set<String> definedShops = statusMapper.selectList(new LambdaQueryWrapper<ShopDeliveryStatus>()
+                        .apply("DATE_FORMAT(date, '%Y-%m') = {0}", yearMonth))
+                .stream().map(ShopDeliveryStatus::getShopId).collect(Collectors.toSet());
 
-        // 2. 获取当月 CSV 明细中存在的所有记录
-        List<DeliveryDetail> allDetails = this.list(new LambdaQueryWrapper<DeliveryDetail>()
-                .likeRight(DeliveryDetail::getDate, yearMonth).orderByAsc(DeliveryDetail::getDate));
+        // 获取明细汇总
+        List<Map<String, Object>> allMonthDetails = baseMapper.selectMonthlyDeliveryStatus(yearMonth);
 
-        // 3. 筛选异常门店：在明细中出现但底稿中没有的门店
-        Map<LocalDate, Map<String, Integer>> matrix = new TreeMap<>();
-        Set<String> exceptionShopIds = new TreeSet<>();
+        // 过滤出异常店
+        TreeMap<String, Map<String, Integer>> matrix = new TreeMap<>();
+        TreeSet<String> exceptionShopIds = new TreeSet<>();
 
-        for (DeliveryDetail d : allDetails) {
-            if (!definedShopIds.contains(d.getShopId())) {
-                exceptionShopIds.add(d.getShopId());
-                matrix.computeIfAbsent(d.getDate(), k -> new HashMap<>())
-                        .merge(d.getShopId(), d.getQty(), Integer::sum);
+        for (Map<String, Object> m : allMonthDetails) {
+            String sid = m.get("shopId").toString();
+            if (!definedShops.contains(sid)) {
+                exceptionShopIds.add(sid);
+                String date = m.get("date").toString();
+                int qty = ((Number) m.get("totalQty")).intValue();
+                matrix.computeIfAbsent(date, k -> new HashMap<>()).put(sid, qty);
             }
         }
 
-        // 4. 分页处理门店列
-        List<String> fullShopList = new ArrayList<>(exceptionShopIds);
+        // 分页处理
+        List<String> sortedShops = new ArrayList<>(exceptionShopIds);
         int start = (current - 1) * size;
-        int end = Math.min(start + size, fullShopList.size());
-        List<String> pagedShops = (start < fullShopList.size()) ? fullShopList.subList(start, end) : new ArrayList<>();
+        int end = Math.min(start + size, sortedShops.size());
+        List<String> pagedShops = (start < sortedShops.size()) ? sortedShops.subList(start, end) : new ArrayList<>();
 
-        // 5. 组装行数据 (日期 | shop1 | shop2 ...)
-        List<Map<String, Object>> tableData = new ArrayList<>();
+        List<Map<String, Object>> data = new ArrayList<>();
         matrix.forEach((date, shops) -> {
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("Date", date.toString());
-            for (String sid : pagedShops) {
-                row.put(sid, shops.getOrDefault(sid, 0));
-            }
-            tableData.add(row);
+            row.put("Date", date);
+            pagedShops.forEach(sid -> row.put(sid, shops.getOrDefault(sid, 0)));
+            data.add(row);
         });
 
         Map<String, Object> res = new HashMap<>();
-        res.put("data", tableData);
+        res.put("data", data);
         res.put("shopList", pagedShops);
-        res.put("total", fullShopList.size());
-        res.put("pages", (int) Math.ceil((double) fullShopList.size() / size));
+        res.put("total", sortedShops.size());
+        res.put("pages", (int) Math.ceil((double) sortedShops.size() / size));
         res.put("current", current);
         return res;
+    }
+
+    /**
+     * 4. 导入 CSV (高性能批处理)
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void importCsv(InputStream is, String yearMonth) throws Exception {
+        String batchNo = UUID.randomUUID().toString();
+        // 幂等删除
+        this.remove(new LambdaQueryWrapper<DeliveryDetail>().likeRight(DeliveryDetail::getDate, yearMonth));
+
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"))) {
+            br.readLine(); // skip header
+            List<DeliveryDetail> batch = new ArrayList<>();
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] cols = line.split(",");
+                if (cols.length < 4) continue;
+                DeliveryDetail d = new DeliveryDetail();
+                d.setShopId(cols[0].trim());
+                d.setSkuId(cols[1].trim());
+                d.setQty(Integer.parseInt(cols[2].trim()));
+                d.setDate(LocalDate.parse(cols[3].trim()));
+                d.setBatchNo(batchNo);
+                batch.add(d);
+                if (batch.size() >= 1000) {
+                    this.saveBatch(batch);
+                    batch.clear();
+                }
+            }
+            if (!batch.isEmpty()) this.saveBatch(batch);
+        }
     }
 }
