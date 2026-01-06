@@ -60,7 +60,8 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
         List<String> pagedShopIds = (start < total) ? allShopIds.subList(start, end) : new ArrayList<>();
 
         List<Map<String, Object>> records = new ArrayList<>();
-        List<Map<String, Object>> auditSummary = new ArrayList<>(); // 全量汇总清单
+        List<Map<String, Object>> auditSummary = new ArrayList<>();
+        List<Map<String, Object>> exceptionList = new ArrayList<>(); // 精简后的异常清单
         int daysInMonth = LocalDate.parse(yearMonth + "-01").lengthOfMonth();
 
         for (String sid : pagedShopIds) {
@@ -83,7 +84,7 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
             }
 
             String sign = (bestT != null && !bestT.getTemplateName().isEmpty()) ? bestT.getTemplateName().substring(0, 1) : "?";
-            row.put("bestTemplate", bestT != null ? bestT.getTemplateName() : "无");
+            row.put("bestTemplate", bestT != null ? bestT.getTemplateName() : "无匹配");
 
             String[] bestCfg = (bestT != null) ? bestT.getConfig().split(",") : new String[daysInMonth];
             for (int d = 1; d <= daysInMonth; d++) {
@@ -95,13 +96,21 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
                 boolean isError = actualStatus != shouldStatus;
                 row.put("isError" + d, isError);
 
-                // 全量列出：每一天的数据都进入汇总表
-                Map<String, Object> summaryItem = new HashMap<>();
-                summaryItem.put("shopId", sid);
-                summaryItem.put("date", yearMonth + "-" + String.format("%02d", d));
-                summaryItem.put("status", statusWithSign);
-                summaryItem.put("isError", isError); // 传给前端用于高亮
-                auditSummary.add(summaryItem);
+                Map<String, Object> item = new HashMap<>();
+                item.put("shopId", sid);
+                item.put("date", yearMonth + "-" + String.format("%02d", d));
+                item.put("status", statusWithSign);
+                item.put("isError", isError);
+
+                auditSummary.add(item);
+
+                // 仅存入异常项，且只保留门店ID和日期
+                if (isError) {
+                    Map<String, Object> errItem = new HashMap<>();
+                    errItem.put("shopId", sid);
+                    errItem.put("date", yearMonth + "-" + String.format("%02d", d));
+                    exceptionList.add(errItem);
+                }
             }
             records.add(row);
         }
@@ -109,6 +118,7 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
         Map<String, Object> res = new HashMap<>();
         res.put("records", records);
         res.put("auditSummary", auditSummary);
+        res.put("exceptionList", exceptionList);
         res.put("days", daysInMonth);
         res.put("total", total);
         res.put("pages", (int) Math.ceil((double) total / size));

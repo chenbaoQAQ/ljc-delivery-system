@@ -2,32 +2,32 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>老乡鸡配送审计看板 - 全量双视图版</title>
+    <title>老乡鸡配送审计看板 - 三视图增强版</title>
     <style>
         body { font-family: 'Microsoft YaHei', sans-serif; padding: 20px; background: #f4f7f9; }
         .card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 0 auto; max-width: 100%; overflow-x: auto;}
         .tabs { display: flex; gap: 15px; margin-bottom: 20px; border-bottom: 2px solid #eee; }
         .tab-btn { padding: 10px 20px; cursor: pointer; border: none; background: none; font-weight: bold; color: #7f8c8d; }
         .tab-btn.active { color: #3498db; border-bottom: 3px solid #3498db; }
-        .toolbar { display: flex; gap: 12px; margin-bottom: 15px; align-items: center; background: #f8f9fa; padding: 15px; border-radius: 8px; }
+        .toolbar { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; background: #f8f9fa; padding: 15px; border-radius: 8px; flex-wrap: wrap; }
         .btn { padding: 8px 16px; cursor: pointer; border: none; border-radius: 4px; color: #fff; font-weight: bold; }
         .btn-blue { background: #3498db; }
         .btn-red { background: #e74c3c; }
         .btn-orange { background: #e67e22; }
-        .btn-toggle { background: #6c5ce7; margin-left: 10px; }
+        .btn-purple { background: #6c5ce7; }
+        .btn-green { background: #2ecc71; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
         th, td { border: 1px solid #edf2f7; padding: 8px 4px; text-align: center; min-width: 35px; }
         th { background: #f7fafc; color: #4a5568; position: sticky; top: 0; }
-        .shop-col { position: sticky; left: 0; background: #fff; z-index: 5; font-weight: bold; border-right: 2px solid #3498db; width: 80px; }
-        /* 标红样式 */
+        .shop-col { position: sticky; left: 0; background: #fff; z-index: 5; font-weight: bold; border-right: 2px solid #3498db; }
         .cell-error { background-color: #fff1f0 !important; color: #cf1322 !important; font-weight: bold; border: 1px solid #ffa39e !important; }
         .text-error { color: #cf1322 !important; font-weight: bold; }
         #loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
         .spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .pagination { margin-top: 15px; display: flex; justify-content: center; gap: 10px; }
         .view-section { display: none; }
         .view-section.active { display: block; }
+        .pagination { margin-top: 15px; display: flex; justify-content: center; gap: 10px; }
     </style>
 </head>
 <body>
@@ -36,7 +36,7 @@
 
 <div class="card">
     <div class="tabs">
-        <button class="tab-btn active" id="tab-audit-btn" onclick="switchTab('audit')">🔍 字母掩码审计看板</button>
+        <button class="tab-btn active" id="tab-audit-btn" onclick="switchTab('audit')">🔍 自动化审计方案</button>
         <button class="tab-btn" id="tab-manage-btn" onclick="switchTab('manage')">⚙️ 底板管理录入</button>
     </div>
 
@@ -45,18 +45,25 @@
             月份：<input type="text" id="ym" value="2024-03" style="width:100px">
             <button class="btn btn-red" onclick="startAudit()">🚀 开始自动审计</button>
             <button class="btn btn-orange" onclick="startDetailView()">📋 原始明细表</button>
-            <button class="btn btn-toggle" id="btn-view-toggle" onclick="toggleAuditView()">切换到列表模式</button>
+            <div style="border-left: 2px solid #ddd; height: 25px; margin: 0 10px;"></div>
+            <button class="btn btn-blue" onclick="switchAuditView('matrix')">看板大表</button>
+            <button class="btn btn-purple" onclick="switchAuditView('summary')">全量列表</button>
+            <button class="btn btn-red" onclick="switchAuditView('exception')" style="background:#ff4d4f">🔴 异常整改清单</button>
             <div style="flex-grow: 1;"></div>
             <input type="file" id="csv-file">
-            <button class="btn btn-blue" style="background:#2ecc71" onclick="uploadCsv()">📥 导入 CSV</button>
+            <button class="btn btn-green" onclick="uploadCsv()">📥 导入 CSV数据</button>
         </div>
 
         <div id="view-matrix" class="view-section active" style="overflow: auto; max-height: 70vh;">
-            <p style="text-align:center; padding:50px; color:#999;">请点击“开始自动审计”加载数据</p>
+            <p style="text-align:center; padding:50px; color:#999;">看板视图：点击审计后显示</p>
         </div>
 
         <div id="view-summary" class="view-section" style="overflow: auto; max-height: 70vh;">
             <p style="text-align:center; padding:50px; color:#999;">全量列表视图</p>
+        </div>
+
+        <div id="view-exception" class="view-section" style="overflow: auto; max-height: 70vh;">
+            <p style="text-align:center; padding:50px; color:#999;">异常整改清单视图</p>
         </div>
 
         <div class="pagination" id="pager" style="display:none;">
@@ -73,11 +80,11 @@
         </div>
         <div id="template-list-container"></div>
         <div id="editor-panel" style="display:none; border:2px solid #3498db; padding:20px; border-radius:8px; margin-top:10px; background:#fff;">
-            <h3 id="editor-title">底板编辑</h3>
+            <h3>底板编辑</h3>
             <input type="hidden" id="edit-t-id">
-            底板名称 (首字母为标识): <input type="text" id="t_name" placeholder="如: A-正常模板">
+            名称 (首字母为标识): <input type="text" id="t_name">
             <div id="day-inputs" style="display:grid; grid-template-columns: repeat(11, 1fr); gap:10px; margin:15px 0;"></div>
-            <button class="btn btn-blue" onclick="submitTemplate()">💾 保存并更新</button>
+            <button class="btn btn-blue" onclick="submitTemplate()">保存底板</button>
             <button class="btn btn-red" onclick="document.getElementById('editor-panel').style.display='none'">取消</button>
         </div>
     </div>
@@ -86,7 +93,6 @@
 <script>
     const API = 'http://localhost:8181/api/status';
     let currentPage = 1, totalPages = 1, currentView = 'audit';
-    let auditSubView = 'matrix';
 
     function showLoader(v, t) {
         document.getElementById('loading-overlay').style.display = v ? 'flex' : 'none';
@@ -101,79 +107,65 @@
         if(t === 'manage') loadTemplateList();
     }
 
-    function toggleAuditView() {
-        const matrix = document.getElementById('view-matrix');
-        const summary = document.getElementById('view-summary');
-        const btn = document.getElementById('btn-view-toggle');
-
-        if (auditSubView === 'matrix') {
-            auditSubView = 'summary';
-            matrix.classList.remove('active');
-            summary.classList.add('active');
-            btn.innerText = "切换到看板模式";
-        } else {
-            auditSubView = 'matrix';
-            matrix.classList.add('active');
-            summary.classList.remove('active');
-            btn.innerText = "切换到列表模式";
-        }
+    function switchAuditView(viewId) {
+        document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+        document.getElementById('view-' + viewId).classList.add('active');
     }
 
-    async function startAudit() { currentView = 'audit'; currentPage = 1; await loadAuditData(); }
-    async function startDetailView() { currentView = 'details'; currentPage = 1; await loadDetailsData(); }
+    async function startAudit() { currentPage = 1; await loadAuditData(); }
+    async function startDetailView() { currentPage = 1; await loadDetailsData(); }
 
     async function loadAuditData() {
-        showLoader(true, "正在组装全量掩码数据...");
-        const ym = document.getElementById('ym').value;
-        const res = await fetch(`${API}/auto-report?yearMonth=${ym}&current=${currentPage}`);
+        showLoader(true, "正在提取全维度审计结果...");
+        const res = await fetch(`${API}/auto-report?yearMonth=${document.getElementById('ym').value}&current=${currentPage}`);
         const data = await res.json();
 
-        // 渲染大表看板
+        // 1. 渲染矩阵
         let mHtml = '<table><thead><tr><th class="shop-col">门店ID</th><th>建议底板</th>';
         for(let d=1; d<=data.days; d++) mHtml += `<th>${d<10?'0'+d:d}</th>`;
         mHtml += '</tr></thead><tbody>';
         data.records.forEach(row => {
-            mHtml += `<tr><td class="shop-col">${row.shopId}</td><td style="color:#e67e22; font-size:10px">${row.bestTemplate}</td>`;
-            for(let d=1; d<=data.days; d++) {
-                mHtml += `<td class="${row['isError'+d]?'cell-error':''}">${row['day'+d]}</td>`;
-            }
+            mHtml += `<tr><td class="shop-col">${row.shopId}</td><td style="color:#e67e22">${row.bestTemplate}</td>`;
+            for(let d=1; d<=data.days; d++) mHtml += `<td class="${row['isError'+d]?'cell-error':''}">${row['day'+d]}</td>`;
             mHtml += '</tr>';
         });
         document.getElementById('view-matrix').innerHTML = mHtml + '</tbody></table>';
 
-        // 渲染全量纵向列表
-        let sHtml = '<table><thead><tr><th>门店 ID</th><th>日期</th><th>掩码状态(0A/1B)</th></tr></thead><tbody>';
-        data.auditSummary.forEach(item => {
-            // 如果 isError 为 true，给该行状态文字加红
-            const errorClass = item.isError ? 'text-error' : '';
-            sHtml += `<tr><td>${item.shopId}</td><td>${item.date}</td><td class="${errorClass}">${item.status}</td></tr>`;
-        });
+        // 2. 渲染全量
+        let sHtml = '<table><thead><tr><th>门店 ID</th><th>日期</th><th>掩码状态</th></tr></thead><tbody>';
+        data.auditSummary.forEach(i => sHtml += `<tr><td>${i.shopId}</td><td>${i.date}</td><td class="${i.isError?'text-error':''}">${i.status}</td></tr>`);
         document.getElementById('view-summary').innerHTML = sHtml + '</tbody></table>';
+
+        // 3. 渲染异常清单 (红榜) - 已根据需求精简：只保留异常门店和日期
+        let eHtml = '<table><thead><tr><th>异常门店</th><th>日期</th></tr></thead><tbody>';
+        if(data.exceptionList.length > 0) {
+            data.exceptionList.forEach(i => eHtml += `<tr><td>${i.shopId}</td><td>${i.date}</td></tr>`);
+        } else { eHtml += '<tr><td colspan="2">恭喜！暂无异常配送数据</td></tr>'; }
+        document.getElementById('view-exception').innerHTML = eHtml + '</tbody></table>';
 
         totalPages = data.pages; updatePager(data); showLoader(false);
     }
 
     async function loadDetailsData() {
-        showLoader(true, "查看原始明细...");
+        showLoader(true, "正在获取原始数据明细...");
         const res = await fetch(`${API}/details?yearMonth=${document.getElementById('ym').value}&current=${currentPage}`);
         const data = await res.json();
         let html = '<table><thead><tr><th>日期</th><th>门店ID</th><th>SKU</th><th>数量</th></tr></thead><tbody>';
         (data.records||[]).forEach(r => html += `<tr><td>${r.date}</td><td>${r.shopId}</td><td>${r.skuId}</td><td>${r.qty}</td></tr>`);
         document.getElementById('view-matrix').innerHTML = html + '</tbody></table>';
-        document.getElementById('view-matrix').classList.add('active');
-        document.getElementById('view-summary').classList.remove('active');
+        switchAuditView('matrix');
         totalPages = data.pages; updatePager(data); showLoader(false);
     }
 
     function updatePager(d) { document.getElementById('pager').style.display = 'flex'; document.getElementById('page-info').innerText = `第 ${d.current} / ${d.pages} 页`; }
-    function pageNav(s) { if(currentPage+s>=1 && currentPage+s<=totalPages) { currentPage+=s; if(currentView==='audit') loadAuditData(); else loadDetailsData(); } }
+    function pageNav(s) { if(currentPage+s>=1 && currentPage+s<=totalPages) { currentPage+=s; loadAuditData(); } }
 
     async function loadTemplateList() {
         const res = await fetch(`${API}/templates?yearMonth=${document.getElementById('m_ym').value}`);
         const list = await res.json();
-        let html = '<table><tr><th>标识</th><th>底板全称</th><th>月份</th><th>操作</th></tr>';
+        let html = '<table><thead><tr><th>标识</th><th>底板全称</th><th>月份</th><th>操作</th></tr></thead><tbody>';
         list.forEach(t => html += `<tr><td><strong>${t.templateName.substring(0,1)}</strong></td><td>${t.templateName}</td><td>${t.yearMonth}</td><td><button onclick='editTemplate(${JSON.stringify(t)})'>编辑</button> <button onclick="deleteTemplate(${t.id})">删除</button></td></tr>`);
-        document.getElementById('template-list-container').innerHTML = html + '</table>';
+        document.getElementById('template-list-container').innerHTML = html + '</tbody></table>';
     }
 
     function editTemplate(t) { document.getElementById('editor-panel').style.display='block'; document.getElementById('edit-t-id').value=t.id; document.getElementById('t_name').value=t.templateName; renderDayInputs(t.config.split(',')); }
@@ -189,11 +181,11 @@
     async function deleteTemplate(id) { if(confirm("确定删除？")) { await fetch(`${API}/template/${id}`, {method:'DELETE'}); loadTemplateList(); } }
 
     async function uploadCsv() {
-        showLoader(true, "🚀 导入中...");
+        showLoader(true, "正在上传全量CSV并重算审计...");
         const fd = new FormData(); fd.append("file", document.getElementById('csv-file').files[0]); fd.append("yearMonth", document.getElementById('ym').value);
         const res = await fetch(`${API}/upload-csv`, { method:'POST', body:fd });
         const r = await res.json();
-        if(r.status==='SUCCESS') { alert("数据已导入"); startAudit(); } else { alert("失败"); showLoader(false); }
+        if(r.status==='SUCCESS') { alert("导入成功"); startAudit(); } else { alert("失败"); showLoader(false); }
     }
 </script>
 </body>
