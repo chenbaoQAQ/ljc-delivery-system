@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>配送管理看板系统</title>
+    <title>配送管理看板系统 - 亿级数据版</title>
     <style>
         body { font-family: 'Microsoft YaHei', sans-serif; padding: 20px; background: #f4f7f9; color: #333; }
         .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 1400px; margin: 0 auto; }
@@ -21,7 +21,7 @@
 
         table { width: 100%; border-collapse: collapse; margin-top: 10px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         th, td { border: 1px solid #eee; padding: 12px; text-align: center; }
-        th { background: #f8f9fa; color: #666; position: sticky; top: 0; }
+        th { background: #f8f9fa; color: #666; position: sticky; top: 0; z-index: 10; }
         tr:nth-child(even) { background-color: #f9f9f9; }
         tr:hover { background-color: #f1f7ff; }
 
@@ -37,7 +37,7 @@
 <body>
 
 <div class="card">
-    <h2>🚚 配送管理系统</h2>
+    <h2>🚚 配送管理看板 (大数据优化的分页版)</h2>
 
     <div class="toolbar">
         月份：<input type="text" id="ym" value="2024-03" placeholder="YYYY-MM">
@@ -52,16 +52,16 @@
         <button class="btn btn-green" onclick="upload()">导入 CSV 数据</button>
     </div>
 
-    <div id="loading">📡 数据同步中，请稍候...</div>
+    <div id="loading">📡 系统处理中，请稍候...</div>
 
-    <div id="view" style="overflow-x: auto;">
+    <div id="view" style="max-height: 600px; overflow: auto; border: 1px solid #eee;">
         <p style="text-align: center; color: #999; padding: 40px;">请点击上方按钮加载数据</p>
     </div>
 
     <div class="pagination" id="pager" style="display:none;">
-        <button class="btn btn-blue" onclick="movePage(-1)">上一页</button>
+        <button class="btn btn-blue" id="btnPrev" onclick="movePage(-1)">上一页</button>
         <span id="pageInfo">第 1 页</span>
-        <button class="btn btn-blue" onclick="movePage(1)">下一页</button>
+        <button class="btn btn-blue" id="btnNext" onclick="movePage(1)">下一页</button>
     </div>
 </div>
 
@@ -69,6 +69,7 @@
     const API = 'http://localhost:8181/api/status';
     let currentView = 'status-report';
     let currentPage = 1;
+    let totalPages = 1;
 
     // 切换报表视图
     function changeView(v) {
@@ -77,43 +78,48 @@
         loadData();
     }
 
-    // 分页跳转
+    // 分页跳转逻辑
     function movePage(step) {
-        currentPage += step;
-        if (currentPage < 1) currentPage = 1;
+        let next = currentPage + step;
+        if (next < 1 || next > totalPages) return;
+        currentPage = next;
         loadData();
     }
 
-    // 核心数据加载函数
+    // 核心数据查询函数
     async function loadData() {
         const ym = document.getElementById('ym').value;
         const loading = document.getElementById('loading');
         const view = document.getElementById('view');
 
+        if(!ym) return alert("请输入查询月份");
         loading.style.display = 'block';
 
         try {
+            // 后端分页拦截器生效后，只会返回 50 条数据，不会卡死
             const res = await fetch(`${API}/${currentView}?yearMonth=${ym}&current=${currentPage}`);
             const result = await res.json();
+
+            // 针对 MyBatis-Plus 的 IPage 结构进行容错处理
+            // 注意：异常门店报表返回的是 Map，结构略有不同
+            const records = result.records || result.data || [];
+            totalPages = result.pages || 1;
 
             let html = '<table><thead>';
 
             if (currentView === 'status-report') {
-                // 1. 门店状态表样式: shopid | date | status
-                html += '<tr><th>门店 ID (ShopID)</th><th>日期 (Date)</th><th>状态 (Status)</th></tr></thead><tbody>';
-                (result.records || []).forEach(row => {
+                html += '<tr><th>门店 ID</th><th>日期</th><th>判定状态</th></tr></thead><tbody>';
+                records.forEach(row => {
                     html += `<tr><td>${row.shopId}</td><td>${row.date}</td><td class="status-val">${row.status}</td></tr>`;
                 });
-                updatePager(result);
 
             } else if (currentView === 'exception-report') {
-                // 2. 异常门店清单样式: Date | 1001 | 1002 ... (交叉表)
                 html += '<tr><th>日期 (Date)</th>';
                 const shops = result.shopList || [];
                 shops.forEach(sid => html += `<th>${sid}</th>`);
                 html += '</tr></thead><tbody>';
 
-                (result.data || []).forEach(row => {
+                records.forEach(row => {
                     html += `<tr><td>${row.Date}</td>`;
                     shops.forEach(sid => {
                         const val = row[sid] || 0;
@@ -121,51 +127,75 @@
                     });
                     html += '</tr>';
                 });
-                updatePager(result);
 
             } else {
-                // 3. 原始明细表
+                // 原始明细表 (重点修正列名大小写匹配)
                 html += '<tr><th>日期</th><th>门店</th><th>SKU</th><th>数量</th></tr></thead><tbody>';
-                (result.records || []).forEach(d => {
+                records.forEach(d => {
                     html += `<tr><td>${d.date}</td><td>${d.shopId}</td><td>${d.skuId}</td><td>${d.qty}</td></tr>`;
                 });
-                updatePager(result);
             }
 
             view.innerHTML = html + '</tbody></table>';
+            updatePager(result);
+
         } catch(e) {
-            view.innerHTML = `<p style="color:red; text-align:center;">加载失败: ${e.message}</p>`;
+            console.error(e);
+            view.innerHTML = `<p style="color:red; text-align:center;">数据加载异常，请检查拦截器配置: ${e.message}</p>`;
         } finally {
             loading.style.display = 'none';
         }
     }
 
-    // 更新分页文字
+    // 更新分页控件状态
     function updatePager(res) {
         document.getElementById('pager').style.display = 'flex';
         const total = res.total || 0;
         const pages = res.pages || 1;
-        document.getElementById('pageInfo').innerText = `第 ${res.current || 1} / ${pages} 页 (共 ${total} 条)`;
+        const current = res.current || 1;
+
+        document.getElementById('pageInfo').innerText = `第 ${current} / ${pages} 页 (共 ${total} 条明细)`;
+
+        // 按钮状态控制
+        document.getElementById('btnPrev').disabled = (current <= 1);
+        document.getElementById('btnNext').disabled = (current >= pages);
+        document.getElementById('btnPrev').style.opacity = (current <= 1) ? "0.5" : "1";
+        document.getElementById('btnNext').style.opacity = (current >= pages) ? "0.5" : "1";
     }
 
-    // 上传 CSV
+    // 上传 CSV：修正参数名并增加进度感
     async function upload() {
-        const file = document.getElementById('csv').files[0];
+        const fileInput = document.getElementById('csv');
+        const file = fileInput.files[0];
+        const ym = document.getElementById('ym').value;
+
         if(!file) return alert("请先选择 CSV 文件");
+        if(!ym) return alert("请指定导入月份");
 
         const fd = new FormData();
         fd.append("file", file);
+        fd.append("yearMonth", ym);
 
-        document.getElementById('loading').style.display = 'block';
+        const loading = document.getElementById('loading');
+        loading.innerText = "🚀 正在处理百万级数据入库，请勿刷新页面...";
+        loading.style.display = 'block';
+
         try {
-            const res = await fetch(`${API}/upload-csv`, { method:'POST', body:fd });
-            const msg = await res.text();
-            alert(msg === "SUCCESS" ? "导入成功" : "失败: " + msg);
-            if(msg === "SUCCESS") loadData();
+            const res = await fetch(`${API}/upload-csv`, { method: 'POST', body: fd });
+            const resultText = await res.text();
+
+            if (resultText.includes("SUCCESS")) {
+                alert("导入成功！100万级数据已同步至数据库并自动分配UUID批次。");
+                fileInput.value = ""; // 清空文件选择
+                changeView('details'); // 自动跳转到明细表查看
+            } else {
+                alert("失败: " + resultText);
+            }
         } catch (e) {
-            alert("上传出错");
+            alert("上传中断，请检查数据库 batch_no 字段是否存在");
         } finally {
-            document.getElementById('loading').style.display = 'none';
+            loading.innerText = "📡 系统处理中，请稍候...";
+            loading.style.display = 'none';
         }
     }
 </script>
