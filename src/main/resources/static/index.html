@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>配送管理看板系统</title>
+    <style>
+        body { font-family: 'Microsoft YaHei', sans-serif; padding: 20px; background: #f4f7f9; color: #333; }
+        .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 1400px; margin: 0 auto; }
+        h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+
+        .toolbar { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; background: #f8f9fa; padding: 15px; border-radius: 6px; flex-wrap: wrap; }
+        .btn { padding: 8px 16px; cursor: pointer; border: none; border-radius: 4px; color: #fff; font-weight: bold; transition: background 0.3s; }
+        .btn-blue { background: #3498db; }
+        .btn-blue:hover { background: #2980b9; }
+        .btn-green { background: #2ecc71; }
+        .btn-green:hover { background: #27ae60; }
+        .btn-orange { background: #e67e22; }
+        .btn-orange:hover { background: #d35400; }
+        .btn-red { background: #e74c3c; }
+        .btn-red:hover { background: #c0392b; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        th, td { border: 1px solid #eee; padding: 12px; text-align: center; }
+        th { background: #f8f9fa; color: #666; position: sticky; top: 0; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        tr:hover { background-color: #f1f7ff; }
+
+        #loading { display: none; color: #3498db; margin-bottom: 10px; font-weight: bold; animation: blink 1s infinite; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        .pagination { margin-top: 20px; display: flex; justify-content: center; gap: 15px; align-items: center; }
+        .status-val { font-weight: bold; color: #2980b9; font-size: 1.1em; }
+        .qty-val { color: #27ae60; font-weight: bold; }
+        input[type="text"] { padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>🚚 配送管理系统</h2>
+
+    <div class="toolbar">
+        月份：<input type="text" id="ym" value="2024-03" placeholder="YYYY-MM">
+
+        <button class="btn btn-blue" onclick="changeView('status-report')">门店状态表</button>
+        <button class="btn btn-red" onclick="changeView('exception-report')">异常门店清单</button>
+        <button class="btn btn-orange" onclick="changeView('details')">原始明细表</button>
+
+        <div style="flex-grow: 1;"></div>
+
+        <input type="file" id="csv" accept=".csv">
+        <button class="btn btn-green" onclick="upload()">导入 CSV 数据</button>
+    </div>
+
+    <div id="loading">📡 数据同步中，请稍候...</div>
+
+    <div id="view" style="overflow-x: auto;">
+        <p style="text-align: center; color: #999; padding: 40px;">请点击上方按钮加载数据</p>
+    </div>
+
+    <div class="pagination" id="pager" style="display:none;">
+        <button class="btn btn-blue" onclick="movePage(-1)">上一页</button>
+        <span id="pageInfo">第 1 页</span>
+        <button class="btn btn-blue" onclick="movePage(1)">下一页</button>
+    </div>
+</div>
+
+<script>
+    const API = 'http://localhost:8181/api/status';
+    let currentView = 'status-report';
+    let currentPage = 1;
+
+    // 切换报表视图
+    function changeView(v) {
+        currentView = v;
+        currentPage = 1;
+        loadData();
+    }
+
+    // 分页跳转
+    function movePage(step) {
+        currentPage += step;
+        if (currentPage < 1) currentPage = 1;
+        loadData();
+    }
+
+    // 核心数据加载函数
+    async function loadData() {
+        const ym = document.getElementById('ym').value;
+        const loading = document.getElementById('loading');
+        const view = document.getElementById('view');
+
+        loading.style.display = 'block';
+
+        try {
+            const res = await fetch(`${API}/${currentView}?yearMonth=${ym}&current=${currentPage}`);
+            const result = await res.json();
+
+            let html = '<table><thead>';
+
+            if (currentView === 'status-report') {
+                // 1. 门店状态表样式: shopid | date | status
+                html += '<tr><th>门店 ID (ShopID)</th><th>日期 (Date)</th><th>状态 (Status)</th></tr></thead><tbody>';
+                (result.records || []).forEach(row => {
+                    html += `<tr><td>${row.shopId}</td><td>${row.date}</td><td class="status-val">${row.status}</td></tr>`;
+                });
+                updatePager(result);
+
+            } else if (currentView === 'exception-report') {
+                // 2. 异常门店清单样式: Date | 1001 | 1002 ... (交叉表)
+                html += '<tr><th>日期 (Date)</th>';
+                const shops = result.shopList || [];
+                shops.forEach(sid => html += `<th>${sid}</th>`);
+                html += '</tr></thead><tbody>';
+
+                (result.data || []).forEach(row => {
+                    html += `<tr><td>${row.Date}</td>`;
+                    shops.forEach(sid => {
+                        const val = row[sid] || 0;
+                        html += `<td>${val > 0 ? '<span class="qty-val">'+val+'</span>' : 0}</td>`;
+                    });
+                    html += '</tr>';
+                });
+                updatePager(result);
+
+            } else {
+                // 3. 原始明细表
+                html += '<tr><th>日期</th><th>门店</th><th>SKU</th><th>数量</th></tr></thead><tbody>';
+                (result.records || []).forEach(d => {
+                    html += `<tr><td>${d.date}</td><td>${d.shopId}</td><td>${d.skuId}</td><td>${d.qty}</td></tr>`;
+                });
+                updatePager(result);
+            }
+
+            view.innerHTML = html + '</tbody></table>';
+        } catch(e) {
+            view.innerHTML = `<p style="color:red; text-align:center;">加载失败: ${e.message}</p>`;
+        } finally {
+            loading.style.display = 'none';
+        }
+    }
+
+    // 更新分页文字
+    function updatePager(res) {
+        document.getElementById('pager').style.display = 'flex';
+        const total = res.total || 0;
+        const pages = res.pages || 1;
+        document.getElementById('pageInfo').innerText = `第 ${res.current || 1} / ${pages} 页 (共 ${total} 条)`;
+    }
+
+    // 上传 CSV
+    async function upload() {
+        const file = document.getElementById('csv').files[0];
+        if(!file) return alert("请先选择 CSV 文件");
+
+        const fd = new FormData();
+        fd.append("file", file);
+
+        document.getElementById('loading').style.display = 'block';
+        try {
+            const res = await fetch(`${API}/upload-csv`, { method:'POST', body:fd });
+            const msg = await res.text();
+            alert(msg === "SUCCESS" ? "导入成功" : "失败: " + msg);
+            if(msg === "SUCCESS") loadData();
+        } catch (e) {
+            alert("上传出错");
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+        }
+    }
+</script>
+
+</body>
+</html>

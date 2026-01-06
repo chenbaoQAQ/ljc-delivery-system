@@ -1,0 +1,34 @@
+# --- Java & Maven ---
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# --- IntelliJ IDEA ---
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# --- Eclipse ---
+.settings/
+.project
+.classpath
+
+# --- Operating System ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Configuration & Logs ---
+*.log
+# 如果你的 application.yml 包含数据库密码，建议取消下面一行的注释，手动管理配置
+# src/main/resources/application.yml
+
+# --- Large Files ---
+# 重点：不要上传大容量的 CSV 测试数据
+*.csv
+*.xlsx
+*.sql
