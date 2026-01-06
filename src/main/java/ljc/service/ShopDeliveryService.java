@@ -26,8 +26,7 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
 
     public IPage<DeliveryDetail> getDetailPage(String yearMonth, int current, int size) {
         return this.page(new Page<>(current, size), new LambdaQueryWrapper<DeliveryDetail>()
-                .likeRight(DeliveryDetail::getDate, yearMonth)
-                .orderByAsc(DeliveryDetail::getDate));
+                .likeRight(DeliveryDetail::getDate, yearMonth).orderByAsc(DeliveryDetail::getDate));
     }
 
     public List<DeliveryTemplate> getTemplatesByMonth(String ym) {
@@ -39,14 +38,13 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
         else templateMapper.updateById(t);
     }
 
-    public void deleteTemplate(Integer id) {
-        templateMapper.deleteById(id);
-    }
+    public void deleteTemplate(Integer id) { templateMapper.deleteById(id); }
 
     public Map<String, Object> getAutoAuditReport(String yearMonth, int current, int size) {
         List<DeliveryTemplate> templates = getTemplatesByMonth(yearMonth);
         List<Map<String, Object>> allDetails = baseMapper.selectMonthlyDeliveryStatus(yearMonth);
 
+        // 门店数据索引 Map<shopId, Map<day, qty>>
         Map<String, Map<Integer, Integer>> shopData = new HashMap<>();
         for (Map<String, Object> m : allDetails) {
             String sid = m.get("shopId").toString();
@@ -54,73 +52,63 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
             shopData.computeIfAbsent(sid, k -> new HashMap<>()).put(day, ((Number) m.get("totalQty")).intValue());
         }
 
-        Map<String, String> bestTemplateMap = new HashMap<>();
-        Map<String, Set<Integer>> diffDaysMap = new HashMap<>();
-        List<String> sortedShops = new ArrayList<>(shopData.keySet());
-        Collections.sort(sortedShops);
+        List<String> allShopIds = new ArrayList<>(shopData.keySet());
+        Collections.sort(allShopIds);
 
-        for (String sid : sortedShops) {
+        int total = allShopIds.size();
+        int pages = (int) Math.ceil((double) total / size);
+        int start = (current - 1) * size;
+        int end = Math.min(start + size, total);
+        List<String> pagedShopIds = (start < total) ? allShopIds.subList(start, end) : new ArrayList<>();
+
+        List<Map<String, Object>> records = new ArrayList<>();
+        int daysInMonth = LocalDate.parse(yearMonth + "-01").lengthOfMonth();
+
+        for (String sid : pagedShopIds) {
             Map<Integer, Integer> dailyActual = shopData.get(sid);
-            String bestTName = "无匹配底板";
-            int minDiffCount = Integer.MAX_VALUE;
-            Set<Integer> bestDiffDays = new HashSet<>();
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("shopId", sid);
 
+            // 寻找最匹配模板
+            DeliveryTemplate bestT = null;
+            int minDiff = Integer.MAX_VALUE;
             for (DeliveryTemplate t : templates) {
                 String[] cfg = t.getConfig().split(",");
-                int currentDiffCount = 0;
-                Set<Integer> currentDiffDays = new HashSet<>();
-
-                // 遍历全月天数进行比对
+                int diff = 0;
                 for (int i = 0; i < cfg.length; i++) {
                     int day = i + 1;
                     int should = Integer.parseInt(cfg[i].trim());
                     int actual = dailyActual.getOrDefault(day, 0) > 0 ? 1 : 0;
-
-                    // 需求核心：只要不相等，就是审计差异 (包括该送没送，和不该送却送了)
-                    if (should != actual) {
-                        currentDiffCount++;
-                        currentDiffDays.add(day);
-                    }
+                    if (should != actual) diff++;
                 }
-
-                if (currentDiffCount < minDiffCount) {
-                    minDiffCount = currentDiffCount;
-                    bestTName = t.getTemplateName();
-                    bestDiffDays = currentDiffDays;
-                }
+                if (diff < minDiff) { minDiff = diff; bestT = t; }
             }
-            bestTemplateMap.put(sid, bestTName);
-            diffDaysMap.put(sid, bestDiffDays);
-        }
 
-        int start = (current - 1) * size;
-        int end = Math.min(start + size, sortedShops.size());
-        List<String> pagedShops = (start < sortedShops.size()) ? sortedShops.subList(start, end) : new ArrayList<>();
+            // 提取模板名称首字母作为标识
+            String signLetter = (bestT != null && !bestT.getTemplateName().isEmpty())
+                    ? bestT.getTemplateName().substring(0, 1) : "?";
+            row.put("bestTemplate", bestT != null ? bestT.getTemplateName() : "无匹配");
 
-        List<Map<String, Object>> records = new ArrayList<>();
-        int daysInMonth = LocalDate.parse(yearMonth + "-01").lengthOfMonth();
-        for (int i = 1; i <= daysInMonth; i++) {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("Date", String.format("%02d", i));
-            for (String sid : pagedShops) {
-                // 如果当天属于审计差异天
-                if (diffDaysMap.get(sid).contains(i)) {
-                    int val = shopData.get(sid).getOrDefault(i, 0);
-                    // 即使送货量为0，只要违反底板，就显示"0"
-                    row.put(sid, String.valueOf(val));
-                } else {
-                    row.put(sid, "-"); // 完全符合底板，显示横杠
-                }
+            String[] bestCfg = (bestT != null) ? bestT.getConfig().split(",") : new String[daysInMonth];
+            for (int d = 1; d <= daysInMonth; d++) {
+                int actualQty = dailyActual.getOrDefault(d, 0);
+                int actualStatus = actualQty > 0 ? 1 : 0; // 大于0统一按1处理
+                int shouldStatus = (bestT != null && d <= bestCfg.length) ? Integer.parseInt(bestCfg[d-1].trim()) : 0;
+
+                // 组装掩码：0A / 1A 这种格式
+                row.put("day" + d, actualStatus + signLetter);
+
+                // 只有状态不一致时才标红
+                row.put("isError" + d, actualStatus != shouldStatus);
             }
             records.add(row);
         }
 
         Map<String, Object> res = new HashMap<>();
         res.put("records", records);
-        res.put("shopList", pagedShops);
-        res.put("bestTemplates", bestTemplateMap);
-        res.put("total", sortedShops.size());
-        res.put("pages", (int) Math.ceil((double) sortedShops.size() / size));
+        res.put("days", daysInMonth);
+        res.put("total", total);
+        res.put("pages", pages);
         res.put("current", current);
         return res;
     }
@@ -136,8 +124,7 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
                 String[] cols = line.split(",");
                 if (cols.length < 4) continue;
                 DeliveryDetail d = new DeliveryDetail();
-                d.setShopId(cols[0].trim());
-                d.setSkuId(cols[1].trim());
+                d.setShopId(cols[0].trim()); d.setSkuId(cols[1].trim());
                 d.setQty(Integer.parseInt(cols[2].trim()));
                 d.setDate(LocalDate.parse(cols[3].trim()));
                 batch.add(d);
