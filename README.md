@@ -1,30 +1,103 @@
-# 🚚 老乡鸡配送数据自动化审计系统 (Million-level Data Engine)
+🚚 老乡鸡配送数据自动化审计系统
+📌 项目背景
 
-## 📌 项目简介
-本项目专为大型连锁餐饮（老乡鸡）设计，旨在处理 **2014-2026 年（跨度 12 年）** 的全量门店配送明细。系统核心解决了在**亿级数据规模**下的数据导入幂等性、审计状态自动判定及高性能报表查询问题。
+在连锁餐饮行业中，门店的配送计划（底板）与物流实际送货数据往往存在偏差。本项目专为老乡鸡设计，旨在通过自动化手段替代人工对账，处理跨度达 12 年（2014-2026）的海量配送明细，实现对全国门店配送准确性的高效审计。
+🚀 核心功能
 
-## 🚀 技术亮点（面试核心）
+    自动化审计引擎：系统自动对比“配送底板模板”与“实际明细”，动态识别异常，生成 0A/1B/C 等审计状态标签。
 
-### 1. 海量数据异步批处理架构
-* **流式解析**：采用 `BufferedReader` 流式读取百万级 CSV 文件，避免 OOM（内存溢出）。
-* **批量入库**：使用 MyBatis Plus `saveBatch` 策略（每 1000 条/批），极大降低了磁盘 I/O 开销。
+    多维审计看板：
 
-### 2. 数据幂等与版本控制 (UUID 机制)
-* **批次管理**：引入 `batch_no` (UUID) 标签，为每一批次导入提供唯一“身份证”。
-* **秒级回滚**：支持基于月份前缀的“全量覆盖式导入”，确保数据不重不漏，支持错误批次的精准回滚。
+        矩阵大表：横向平铺展示全月每天的配送状态，红色高亮异常单元格。
 
-### 3. 亿级数据查询性能优化
-* **复合索引**：针对 `(date, shop_id)` 建立复合索引，利用 **左前缀原则** 和 **索引覆盖 (Covering Index)**。
-* **降维打击**：将原始查询延迟从分钟级优化至 **300ms 以内**，即使在数据量过亿的极端环境下依然保持秒开。
+        异常整改清单：精准定位配送偏差的门店与日期，直接导出供管理层复核。
 
-### 4. 自动化审计逻辑
-* **状态判定**：系统自动比对“配送底稿”与“实际明细”，动态生成 `0A/0B/C` 等审计状态，代替人工对账。
+    灵活底板管理：支持按月份配置不同的配送模版（如：135配送、隔日配等），支持图形化勾选配置。
 
-## 🛠️ 数据库设计
+    大数据异步导入：支持百万级 CSV 数据流式解析与批量入库，具备防 OOM 机制。
 
-* `delivery_detail`: 事实表，存储亿级配送明细。
-* `shop_delivery_status`: 底稿表，存储门店预设排班。
+🛠️ 技术深度（面试亮点）
+1. 亿级数据量下的查询性能优化
 
-## 📊 性能表现
-* **导入速度**：百万级数据入库约 XX 秒。
-* **查询延迟**：亿级全表环境下，单月报表响应 < 500ms (基于 EXPLAIN 优化)。
+   复合索引设计：针对 (date, shop_id) 建立复合索引，严格遵循最左匹配原则。
+
+   局部聚合策略：审计报表放弃全表扫描，采用“先分页去重门店 ID，再局部聚合明细”的二次查询方案，将分钟级延迟降低至毫秒级。
+
+   索引覆盖 (Covering Index)：优化 SQL 使其尽可能在索引树上完成计算，减少回表 IO 次数。
+
+2. 高可靠的数据幂等架构
+
+   UUID 版本控制：引入 batch_no 机制，为每一批次导入提供唯一身份标识，确保数据重跑时不重复。
+
+   全量覆盖式导入：采用“先清理当月、后批量插入”的事务化逻辑，保证月度数据的最终一致性。
+
+3. 前后端分离的高性能交互
+
+   真正物理分页：基于 MyBatis-Plus 拦截器实现数据库层面的物理分页，避免内存分页导致的溢出问题。
+
+   前端虚拟渲染思想：在看板大表中使用表格固定列（Sticky Column）技术，确保在大规模数据横向滚动时的用户体验。
+
+📊 数据库模型
+
+    delivery_detail: 配送事实表，存储亿级颗粒度的 SKU 配送明细。
+
+    delivery_template: 审计标准表，存储各月份的配送计划配置。
+
+    shop_delivery_status: 状态映射表，存储审计判定的最终结论。
+
+📦 快速开始
+
+    环境要求：JDK 17+, MySQL 8.0。
+
+    数据库初始化：执行 SQL 脚本创建相关表。
+
+    配置文件：修改 application.properties 中的数据库连接信息。
+
+    mvn clean package
+    java -jar target/ljc-delivery-system-0.0.1-SNAPSHOT.jar
+
+    访问：打开浏览器访问 http://localhost:8181/index.html。
+
+📊 数据库文件
+
+    -- 1. 清理旧表（如果存在）
+    DROP TABLE IF EXISTS `delivery_detail`;
+    DROP TABLE IF EXISTS `shop_delivery_status`;
+    DROP TABLE IF EXISTS `delivery_template`;
+    CREATE DATABASE IF NOT EXISTS `ljc-delivery-system` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+    USE `ljc-delivery-system`;
+    -- 1. 配送明细表 (针对亿级数据优化)
+    CREATE TABLE `delivery_detail` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `shop_id` VARCHAR(50) NOT NULL COMMENT '门店ID',
+    `sku_id` VARCHAR(50) DEFAULT NULL COMMENT '产品SKU ID',
+    `qty` INT DEFAULT '0' COMMENT '配送数量',
+    `date` DATE NOT NULL COMMENT '配送日期',
+    `batch_no` VARCHAR(64) DEFAULT NULL COMMENT '导入批次号(UUID)',
+    PRIMARY KEY (`id`),
+    -- 索引1：用于第一步分页获取去重的 shop_id (覆盖索引)
+    KEY `idx_date_shop` (`date`, `shop_id`),
+    -- 索引2：用于第二步局部精准聚合 SUM(qty) (覆盖索引，避免回表)
+    KEY `idx_shop_date_qty` (`shop_id`, `date`, `qty`),
+    -- 索引3：用于数据维护、按批次秒级回滚
+    KEY `idx_batch_no` (`batch_no`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配送明细事实表';
+    
+    -- 2. 配送底板表
+    CREATE TABLE `delivery_template` (
+    `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `template_name` VARCHAR(100) NOT NULL,
+    `year_month` VARCHAR(7) NOT NULL, -- 格式: YYYY-MM
+    `config` TEXT NOT NULL,           -- 存储1-31天的状态
+    KEY `idx_ym` (`year_month`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    
+    -- 3. 门店审计状态底稿表
+    CREATE TABLE `shop_delivery_status` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `shop_id` VARCHAR(50) NOT NULL,
+    `date` DATE NOT NULL,
+    `shop_status` VARCHAR(10) DEFAULT NULL, -- 存储 0A, 1B 等
+    UNIQUE KEY `uk_shop_date` (`shop_id`, `date`),
+    KEY `idx_date` (`date`) -- 方便按日期拉取整改清单
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
