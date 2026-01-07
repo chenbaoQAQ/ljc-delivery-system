@@ -128,22 +128,47 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
 
     @Transactional(rollbackFor = Exception.class)
     public void importCsv(InputStream is, String yearMonth) throws Exception {
-        this.remove(new LambdaQueryWrapper<DeliveryDetail>().likeRight(DeliveryDetail::getDate, yearMonth));
+        // 1. 生成本次导入的唯一批次号，方便后续溯源或回滚
+        String currentBatchNo = UUID.randomUUID().toString();
+
+        // 2. 清理旧数据：依然只清理目标月份
+        this.remove(new LambdaQueryWrapper<DeliveryDetail>()
+                .likeRight(DeliveryDetail::getDate, yearMonth));
+
         try (BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"))) {
-            br.readLine();
+            br.readLine(); // 跳过表头
             List<DeliveryDetail> batch = new ArrayList<>();
             String line;
+
             while ((line = br.readLine()) != null) {
                 String[] cols = line.split(",");
                 if (cols.length < 4) continue;
+
+                // 核心修复逻辑：校验日期
+                String dateStr = cols[3].trim();
+                if (!dateStr.startsWith(yearMonth)) {
+                    // 如果该行数据不属于当前要导入的月份，直接跳过，防止污染其他月份
+                    continue;
+                }
+
                 DeliveryDetail d = new DeliveryDetail();
-                d.setShopId(cols[0].trim()); d.setSkuId(cols[1].trim());
+                d.setShopId(cols[0].trim());
+                d.setSkuId(cols[1].trim());
                 d.setQty(Integer.parseInt(cols[2].trim()));
-                d.setDate(LocalDate.parse(cols[3].trim()));
+                d.setDate(LocalDate.parse(dateStr));
+
+                // 写入批次号（对应 DeliveryDetail 实体中的字段）
+                d.setBatchNo(currentBatchNo);
+
                 batch.add(d);
-                if (batch.size() >= 1000) { this.saveBatch(batch); batch.clear(); }
+                if (batch.size() >= 1000) {
+                    this.saveBatch(batch);
+                    batch.clear();
+                }
             }
-            if (!batch.isEmpty()) this.saveBatch(batch);
+            if (!batch.isEmpty()) {
+                this.saveBatch(batch);
+            }
         }
     }
-}
+    }
