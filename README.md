@@ -60,44 +60,45 @@
 
 📊 数据库文件
 
-    -- 1. 清理旧表（如果存在）
-    DROP TABLE IF EXISTS `delivery_detail`;
-    DROP TABLE IF EXISTS `shop_delivery_status`;
-    DROP TABLE IF EXISTS `delivery_template`;
-    CREATE DATABASE IF NOT EXISTS `ljc-delivery-system` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-    USE `ljc-delivery-system`;
-    -- 1. 配送明细表 (针对亿级数据优化)
-    CREATE TABLE `delivery_detail` (
-    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-    `shop_id` VARCHAR(50) NOT NULL COMMENT '门店ID',
-    `sku_id` VARCHAR(50) DEFAULT NULL COMMENT '产品SKU ID',
-    `qty` INT DEFAULT '0' COMMENT '配送数量',
-    `date` DATE NOT NULL COMMENT '配送日期',
-    `batch_no` VARCHAR(64) DEFAULT NULL COMMENT '导入批次号(UUID)',
-    PRIMARY KEY (`id`),
-    -- 索引1：用于第一步分页获取去重的 shop_id (覆盖索引)
-    KEY `idx_date_shop` (`date`, `shop_id`),
-    -- 索引2：用于第二步局部精准聚合 SUM(qty) (覆盖索引，避免回表)
-    KEY `idx_shop_date_qty` (`shop_id`, `date`, `qty`),
-    -- 索引3：用于数据维护、按批次秒级回滚
-    KEY `idx_batch_no` (`batch_no`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配送明细事实表';
-    
-    -- 2. 配送底板表
-    CREATE TABLE `delivery_template` (
-    `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `template_name` VARCHAR(100) NOT NULL,
-    `year_month` VARCHAR(7) NOT NULL, -- 格式: YYYY-MM
-    `config` TEXT NOT NULL,           -- 存储1-31天的状态
-    KEY `idx_ym` (`year_month`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    
-    -- 3. 门店审计状态底稿表
-    CREATE TABLE `shop_delivery_status` (
-    `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `shop_id` VARCHAR(50) NOT NULL,
-    `date` DATE NOT NULL,
-    `shop_status` VARCHAR(10) DEFAULT NULL, -- 存储 0A, 1B 等
-    UNIQUE KEY `uk_shop_date` (`shop_id`, `date`),
-    KEY `idx_date` (`date`) -- 方便按日期拉取整改清单
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      CREATE DATABASE ljc_delivery_system;
+      -- 1. 清理旧表（如果存在）
+      DROP TABLE IF EXISTS `delivery_detail`;
+      DROP TABLE IF EXISTS `shop_delivery_status`;
+      DROP TABLE IF EXISTS `delivery_template`;
+      CREATE DATABASE IF NOT EXISTS `ljc_delivery_system` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+      USE `ljc_delivery_system`;
+      -- 1. 配送明细表 (针对亿级数据优化)
+      CREATE TABLE `delivery_detail` (
+      `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+      `shop_id` VARCHAR(50) NOT NULL COMMENT '门店ID',
+      `sku_id` VARCHAR(50) DEFAULT NULL COMMENT '产品SKU ID',
+      `qty` INT DEFAULT '0' COMMENT '配送数量',
+      `date` DATE NOT NULL COMMENT '配送日期',
+      `batch_no` VARCHAR(64) DEFAULT NULL COMMENT '导入批次号(UUID)',
+      PRIMARY KEY (`id`),
+      -- 索引1：用于第一步分页获取去重的 shop_id (覆盖索引)
+      KEY `idx_date_shop` (`date`, `shop_id`),
+      -- 索引2：用于第二步局部精准聚合 SUM(qty) (覆盖索引，避免回表)
+      KEY `idx_shop_date_qty` (`shop_id`, `date`, `qty`),
+      -- 索引3：用于数据维护、按批次秒级回滚
+      KEY `idx_batch_no` (`batch_no`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配送明细事实表';
+      
+      -- 2. 配送底板表
+      CREATE TABLE `delivery_template` (
+      `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      `template_name` VARCHAR(100) NOT NULL,
+      `year_month` VARCHAR(7) NOT NULL, -- 格式: YYYY-MM
+      `config` TEXT NOT NULL,           -- 存储1-31天的状态
+      KEY `idx_ym` (`year_month`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      
+      -- 3. 门店审计状态底稿表
+      CREATE TABLE `shop_delivery_status` (
+      `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      `shop_id` VARCHAR(50) NOT NULL,
+      `date` DATE NOT NULL,
+      `shop_status` VARCHAR(10) DEFAULT NULL, -- 存储 0A, 1B 等
+      UNIQUE KEY `uk_shop_date` (`shop_id`, `date`),
+      KEY `idx_date` (`date`) -- 方便按日期拉取整改清单
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
