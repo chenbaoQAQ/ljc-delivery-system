@@ -1,7 +1,5 @@
 package ljc.controller;
 
-import com.baomidou.mybatisplus.core.metadata.IPage;
-import ljc.entity.DeliveryDetail;
 import ljc.entity.DeliveryTemplate;
 import ljc.service.ShopDeliveryService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,48 +11,51 @@ import java.util.*;
 @RequestMapping("/api/status")
 @CrossOrigin
 public class ShopStatusController {
-
-    @Autowired
-    private ShopDeliveryService shopDeliveryService;
+    @Autowired private ShopDeliveryService service;
 
     @GetMapping("/templates")
-    public List<DeliveryTemplate> getTemplates(@RequestParam String yearMonth) {
-        return shopDeliveryService.getTemplatesByMonth(yearMonth);
-    }
+    public List<DeliveryTemplate> getT(@RequestParam String ym) { return service.getTemplatesByMonth(ym); }
 
     @PostMapping("/template")
-    public String saveTemplate(@RequestBody DeliveryTemplate t) {
-        shopDeliveryService.saveTemplate(t);
+    public String saveT(@RequestBody DeliveryTemplate t) {
+        service.saveTemplate(t); // 修复爆红点
         return "SUCCESS";
     }
 
     @DeleteMapping("/template/{id}")
-    public String deleteTemplate(@PathVariable Integer id) {
-        shopDeliveryService.deleteTemplate(id);
+    public String deleteT(@PathVariable Integer id) {
+        service.deleteTemplate(id);
         return "SUCCESS";
     }
 
     @GetMapping("/auto-report")
-    public Map<String, Object> getAutoReport(@RequestParam String yearMonth, @RequestParam(defaultValue="1") int current) {
-        return shopDeliveryService.getAutoAuditReport(yearMonth, current, 10);
+    public Map<String, Object> report(@RequestParam String ym, @RequestParam(defaultValue="1") int current) {
+        return service.getAutoAuditReport(ym, current, 10);
     }
 
-    @GetMapping("/details")
-    public IPage<DeliveryDetail> getDetails(@RequestParam String yearMonth, @RequestParam(defaultValue="1") int current) {
-        return shopDeliveryService.getDetailPage(yearMonth, current, 50);
+    @GetMapping("/exception-matrix")
+    public Map<String, Object> exMatrix(@RequestParam String ym) {
+        return service.getGlobalExceptionMatrix(ym);
     }
 
     @PostMapping("/upload-csv")
-    public Map<String, Object> uploadCsv(@RequestParam("file") MultipartFile file, @RequestParam("yearMonth") String yearMonth) {
-        Map<String, Object> response = new HashMap<>();
+    public Map<String, Object> upload(@RequestParam MultipartFile file, @RequestParam String ym) {
         try {
-            shopDeliveryService.importCsv(file.getInputStream(), yearMonth);
-            response.put("status", "SUCCESS");
-            return response;
+            service.importCsv(file.getInputStream(), ym);
+            return Map.of("status", "SUCCESS");
         } catch (Exception e) {
-            response.put("status", "ERROR");
-            response.put("message", e.getMessage());
-            return response;
+            return Map.of("status", "ERROR", "message", e.getMessage());
         }
+    }
+    @GetMapping("/export-qualified")
+    public void exportQualified(@RequestParam String ym, javax.servlet.http.HttpServletResponse response) throws Exception {
+        String csvData = service.exportQualifiedShopsCsv(ym);
+
+        response.setContentType("text/csv;charset=UTF-8");
+        response.setHeader("Content-Disposition", "attachment; filename=qualified_shops_" + ym + ".csv");
+
+        // 写入 UTF-8 BOM 防止 Excel 打开乱码
+        response.getOutputStream().write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
+        response.getOutputStream().write(csvData.getBytes("UTF-8"));
     }
 }
