@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>老乡鸡配送审计看板 - 需求修正版</title>
+    <title>老乡鸡配送审计看板</title>
     <style>
         body { font-family: 'Microsoft YaHei', sans-serif; padding: 20px; background: #f4f7f9; }
         .card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 0 auto; max-width: 100%; }
@@ -33,8 +33,8 @@
     <div id="page-audit">
         <div class="toolbar">
             月份：<input type="text" id="ym" value="2024-03" style="width:100px">
-            <button class="btn btn-blue" onclick="loadData('report')">🔍 看板大表</button>
-            <button class="btn btn-red" onclick="loadData('exception')">🔴 异常清单大表</button>
+            <button class="btn btn-blue" onclick="loadData('report')">🔍 数据审计</button>
+            <button class="btn btn-red" onclick="loadData('exception')">🔴 异常清单</button>
             <button class="btn btn-cyan" onclick="exportQualifiedList()">📥 导出合格明细 (列表)</button>
             <button class="btn btn-orange" onclick="exportExceptionMatrix()">📥 导出异常门店 (大表)</button>
             <div style="flex-grow: 1;"></div>
