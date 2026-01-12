@@ -102,3 +102,44 @@
       UNIQUE KEY `uk_shop_date` (`shop_id`, `date`),
       KEY `idx_date` (`date`) -- 方便按日期拉取整改清单
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-------------------------------------------------------------------------------
+V2：
+
+      -- 2. 清理旧表
+      DROP TABLE IF EXISTS `delivery_detail`;
+      DROP TABLE IF EXISTS `delivery_template`;
+      DROP TABLE IF EXISTS `shop_delivery_status`;
+      
+      -- 3. 配送明细表 (V2精简版：适配 CSV 直接导入)
+      -- 移除 sku_id 和 batch_no，将 CSV 中的 id 设为主键
+      CREATE TABLE `delivery_detail` (
+      `id` BIGINT NOT NULL COMMENT '来自CSV的唯一流水ID',
+      `shop_id` VARCHAR(50) NOT NULL COMMENT '门店ID',
+      `date` DATE NOT NULL COMMENT '配送日期',
+      `qty` INT DEFAULT '0' COMMENT '配送数量',
+      PRIMARY KEY (`id`),
+      -- 索引优化：支撑“先分页门店，再聚合明细”的高性能算法
+      -- 索引1：用于快速分页获取去重的 shop_id
+      KEY `idx_date_shop` (`date`, `shop_id`),
+      -- 索引2：用于局部精准聚合 SUM(qty) (覆盖索引，避免回表)
+      KEY `idx_shop_date_qty` (`shop_id`, `date`, `qty`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='精简后的配送明细表';
+      
+      -- 4. 配送底板表 (保持不变，支持 CRUD)
+      CREATE TABLE `delivery_template` (
+      `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      `template_name` VARCHAR(100) NOT NULL COMMENT '底板名称 (如: B-单号)',
+      `year_month` VARCHAR(7) NOT NULL COMMENT '适用月份 (YYYY-MM)',
+      `config` TEXT NOT NULL COMMENT '1-31天的配送规律配置 (0/1字符串)',
+      KEY `idx_ym` (`year_month`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配送底板配置表';
+      
+      -- 5. 门店审计状态底稿表 (用于存储审计结论)
+      CREATE TABLE `shop_delivery_status` (
+      `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      `shop_id` VARCHAR(50) NOT NULL,
+      `date` DATE NOT NULL,
+      `shop_status` VARCHAR(10) DEFAULT NULL COMMENT '存储 0A, 1B 等状态标识',
+      UNIQUE KEY `uk_shop_date` (`shop_id`, `date`),
+      KEY `idx_date` (`date`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='门店审计状态底稿表';
