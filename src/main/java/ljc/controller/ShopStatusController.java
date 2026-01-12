@@ -12,6 +12,7 @@ import java.util.*;
 @RequestMapping("/api/status")
 @CrossOrigin
 public class ShopStatusController {
+
     @Autowired private ShopDeliveryService service;
 
     @GetMapping("/templates") public List<DeliveryTemplate> getT(@RequestParam String ym) { return service.getTemplatesByMonth(ym); }
@@ -31,21 +32,31 @@ public class ShopStatusController {
     @GetMapping("/export-qualified-list")
     public void exportQualifiedList(@RequestParam String ym, HttpServletResponse response) throws Exception {
         String csv = service.exportQualifiedShopsCsv(ym);
-        response.setContentType("text/csv;charset=UTF-8");
-        response.setHeader("Content-Disposition", "attachment; filename=qualified_list_" + ym + ".csv");
-        response.getOutputStream().write(csv.getBytes("UTF-8"));
+        setupCsvResponse(response, "qualified_list_" + ym + ".csv", csv);
     }
 
     @GetMapping("/export-exception-matrix")
     public void exportExceptionMatrix(@RequestParam String ym, HttpServletResponse response) throws Exception {
         String csv = service.exportExceptionMatrixCsv(ym);
-        response.setContentType("text/csv;charset=UTF-8");
-        response.setHeader("Content-Disposition", "attachment; filename=exception_matrix_" + ym + ".csv");
-        response.getOutputStream().write(csv.getBytes("UTF-8"));
+        setupCsvResponse(response, "exception_status_matrix_" + ym + ".csv", csv);
+    }
+
+    @GetMapping("/export-exception-qty")
+    public void exportExceptionQty(@RequestParam String ym, HttpServletResponse response) throws Exception {
+        String csv = service.exportExceptionQtyMatrixCsv(ym);
+        setupCsvResponse(response, "exception_qty_matrix_inverted_" + ym + ".csv", csv);
     }
 
     @PostMapping("/upload-csv") public Map<String, Object> upload(@RequestParam MultipartFile file, @RequestParam String ym) {
         try { service.importCsv(file.getInputStream(), ym); return Map.of("status", "SUCCESS"); }
         catch (Exception e) { return Map.of("status", "ERROR", "message", e.getMessage()); }
+    }
+
+    private void setupCsvResponse(HttpServletResponse response, String fileName, String content) throws Exception {
+        response.setContentType("text/csv;charset=UTF-8");
+        response.setHeader("Content-Disposition", "attachment; filename=" + fileName);
+        response.getOutputStream().write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF}); // 写入BOM头
+        response.getOutputStream().write(content.getBytes("UTF-8"));
+        response.getOutputStream().flush();
     }
 }

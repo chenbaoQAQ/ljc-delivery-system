@@ -2,7 +2,6 @@ package ljc.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import ljc.entity.DeliveryDetail;
@@ -73,7 +72,7 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
         return Map.of("records", exceptions, "days", days);
     }
 
-    // --- 导出：正常门店 (列表格式) ---
+    // --- 导出 1：正常门店 (列表格式) ---
     public String exportQualifiedShopsCsv(String ym) {
         List<DeliveryTemplate> templates = getTemplatesByMonth(ym);
         List<Map<String, Object>> allStatus = baseMapper.selectMonthlyDeliveryStatus(ym);
@@ -86,17 +85,15 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
             if (!(boolean) row.get("hasError")) {
                 String sign = row.get("bestTemplate").toString().substring(0, 1);
                 for (int d = 1; d <= days; d++) {
-                    String dateStr = ym + "-" + String.format("%02d", d);
-                    // 正常门店每一天都是符合底板的
-                    int act = actuals.getOrDefault(d, 0) > 0 ? 1 : 0;
-                    csv.append(sid).append(",").append(dateStr).append(",").append(act).append(sign).append("\n");
+                    csv.append(sid).append(",").append(ym).append("-").append(String.format("%02d", d))
+                            .append(",").append(actuals.getOrDefault(d, 0) > 0 ? 1 : 0).append(sign).append("\n");
                 }
             }
         });
         return csv.toString();
     }
 
-    // --- 导出：异常门店 (大表矩阵格式) ---
+    // --- 导出 2：异常门店 (状态大表 - 保持原样日期横排) ---
     public String exportExceptionMatrixCsv(String ym) {
         List<DeliveryTemplate> templates = getTemplatesByMonth(ym);
         List<Map<String, Object>> allStatus = baseMapper.selectMonthlyDeliveryStatus(ym);
@@ -104,7 +101,7 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
         int days = YearMonth.parse(ym).lengthOfMonth();
 
         StringBuilder csv = new StringBuilder("\uFEFF门店ID,匹配底板");
-        for (int i = 1; i <= days; i++) csv.append(",").append(i);
+        for (int i = 1; i <= days; i++) csv.append(",").append(ym).append("-").append(String.format("%02d", i));
         csv.append("\n");
 
         shopData.forEach((sid, actuals) -> {
@@ -118,13 +115,44 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
         return csv.toString();
     }
 
+    // --- 导出 3：异常门店 (Qty 矩阵 - 时间竖排，门店横排) ---
+    public String exportExceptionQtyMatrixCsv(String ym) {
+        List<DeliveryTemplate> templates = getTemplatesByMonth(ym);
+        List<Map<String, Object>> allStatus = baseMapper.selectMonthlyDeliveryStatus(ym);
+        Map<String, Map<Integer, Integer>> shopData = groupShopData(allStatus);
+        int days = YearMonth.parse(ym).lengthOfMonth();
+
+        // 1. 筛选出所有异常门店 ID 并排序
+        List<String> exceptionShopIds = new ArrayList<>();
+        shopData.forEach((sid, actuals) -> {
+            Map<String, Object> auditRow = processAuditRow(sid, actuals, templates, days);
+            if ((boolean) auditRow.get("hasError")) exceptionShopIds.add(sid);
+        });
+        Collections.sort(exceptionShopIds);
+
+        // 2. 生成表头：日期, 门店1, 门店2...
+        StringBuilder csv = new StringBuilder("\uFEFF日期");
+        for (String sid : exceptionShopIds) csv.append(",").append(sid);
+        csv.append("\n");
+
+        // 3. 按日期逐行写入：2024-03-01, qty1, qty2...
+        for (int d = 1; d <= days; d++) {
+            csv.append(ym).append("-").append(String.format("%02d", d));
+            for (String sid : exceptionShopIds) {
+                int qty = shopData.get(sid).getOrDefault(d, 0);
+                csv.append(",").append(qty);
+            }
+            csv.append("\n");
+        }
+        return csv.toString();
+    }
+
     private Map<String, Object> buildAuditMatrix(String ym, List<String> shopIds, List<DeliveryTemplate> templates) {
         List<Map<String, Object>> details = baseMapper.selectMonthlySummaryByShops(ym, shopIds);
         Map<String, Map<Integer, Integer>> shopData = groupShopData(details);
         int days = YearMonth.parse(ym).lengthOfMonth();
         List<Map<String, Object>> records = shopIds.stream()
-                .map(id -> processAuditRow(id, shopData.getOrDefault(id, Map.of()), templates, days))
-                .toList();
+                .map(id -> processAuditRow(id, shopData.getOrDefault(id, Map.of()), templates, days)).toList();
         return new HashMap<>(Map.of("records", records, "days", days));
     }
 

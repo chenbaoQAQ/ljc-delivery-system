@@ -2,28 +2,27 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>老乡鸡配送审计看板</title>
+    <title>老乡鸡配送审计看板 - V2.0 终极版</title>
     <style>
         body { font-family: 'Microsoft YaHei', sans-serif; padding: 20px; background: #f4f7f9; }
         .card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 0 auto; max-width: 100%; }
         .tabs { display: flex; gap: 15px; margin-bottom: 20px; border-bottom: 2px solid #eee; }
         .tab-btn { padding: 10px 20px; cursor: pointer; border: none; background: none; font-weight: bold; color: #7f8c8d; }
         .tab-btn.active { color: #3498db; border-bottom: 3px solid #3498db; }
-        .toolbar { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; background: #f8f9fa; padding: 15px; border-radius: 8px; flex-wrap: wrap; }
-        .stat-bar { display: flex; gap: 25px; margin-bottom: 15px; padding: 12px 20px; background: #fff; border-radius: 8px; border-left: 5px solid #3498db; }
-        .stat-item { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: bold; }
-        .btn { padding: 8px 16px; cursor: pointer; border: none; border-radius: 4px; color: #fff; font-weight: bold; }
-        .btn-blue { background: #3498db; } .btn-red { background: #e74c3c; } .btn-green { background: #2ecc71; } .btn-cyan { background: #00bcd4; } .btn-orange { background: #e67e22; }
+        .toolbar { display: flex; gap: 8px; margin-bottom: 15px; align-items: center; background: #f8f9fa; padding: 12px; border-radius: 8px; flex-wrap: wrap; }
+        .btn { padding: 8px 14px; cursor: pointer; border: none; border-radius: 4px; color: #fff; font-weight: bold; font-size: 13px; }
+        .btn-blue { background: #3498db; } .btn-red { background: #e74c3c; } .btn-green { background: #2ecc71; } .btn-cyan { background: #00bcd4; } .btn-orange { background: #f39c12; } .btn-purple { background: #9b59b6; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
         th, td { border: 1px solid #edf2f7; padding: 8px; text-align: center; white-space: nowrap; }
         th { background: #f7fafc; position: sticky; top: 0; z-index: 10; }
         .shop-col { position: sticky; left: 0; background: #fff; font-weight: bold; z-index: 11; border-right: 2px solid #3498db; }
         .cell-error { background-color: #fff1f0 !important; color: #cf1322 !important; font-weight: bold; border: 1px solid #ffa39e !important; }
         #loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 1000; justify-content: center; align-items: center; }
+        .stat-bar { display: flex; gap: 20px; margin-bottom: 15px; padding: 10px 15px; background: #fff; border-radius: 8px; border-left: 5px solid #3498db; box-shadow: 0 2px 4px rgba(0,0,0,0.05); font-size: 13px; }
     </style>
 </head>
 <body>
-<div id="loading-overlay"><div><p>🚀 正在处理中...</p></div></div>
+<div id="loading-overlay"><div><p>数据深度处理中...</p></div></div>
 <div class="card">
     <div class="tabs">
         <button class="tab-btn active" id="tab-audit" onclick="switchTab('audit')">🔍 审计看板</button>
@@ -32,19 +31,21 @@
 
     <div id="page-audit">
         <div class="toolbar">
-            月份：<input type="text" id="ym" value="2024-03" style="width:100px">
-            <button class="btn btn-blue" onclick="loadData('report')">🔍 数据审计</button>
-            <button class="btn btn-red" onclick="loadData('exception')">🔴 异常清单</button>
-            <button class="btn btn-cyan" onclick="exportQualifiedList()">📥 导出合格明细 (列表)</button>
-            <button class="btn btn-orange" onclick="exportExceptionMatrix()">📥 导出异常门店 (大表)</button>
+            月份：<input type="text" id="ym" value="2024-03" style="width:90px">
+            <button class="btn btn-blue" onclick="loadData('report')">看板大表</button>
+            <button class="btn btn-red" onclick="loadData('exception')">异常清单</button>
+            <div style="border-left: 1px solid #ddd; height: 20px; margin: 0 5px;"></div>
+            <button class="btn btn-cyan" onclick="exportFile('qualified-list')">📥 导出合格列表</button>
+            <button class="btn btn-orange" onclick="exportFile('exception-matrix')">📥 导出异常状态表</button>
+            <button class="btn btn-purple" onclick="exportFile('exception-qty')">📥 导出异常数量表(逆转)</button>
             <div style="flex-grow: 1;"></div>
             <input type="file" id="csv-file">
-            <button class="btn btn-green" onclick="uploadCsv()">导入数据</button>
+            <button class="btn btn-green" onclick="uploadCsv()">导入CSV</button>
         </div>
         <div class="stat-bar">
-            <div class="stat-item">总门店数: <span id="stat-total">-</span></div>
-            <div class="stat-item">✅ 合格门店: <span id="stat-ok" style="color:#2ecc71">-</span></div>
-            <div class="stat-item">❌ 异常门店: <span id="stat-err" style="color:#e74c3c">-</span></div>
+            <span>总门店: <b id="stat-total">-</b></span>
+            <span style="color:#2ecc71">✅ 合格: <b id="stat-ok">-</b></span>
+            <span style="color:#e74c3c">❌ 异常: <b id="stat-err">-</b></span>
         </div>
         <div id="wrapper-audit" style="overflow: auto; max-height: 60vh; border: 1px solid #eee;"></div>
         <div id="pager" style="text-align:center; margin-top:15px; display:none;">
@@ -61,7 +62,7 @@
         </div>
         <div id="template-list"></div>
         <div id="editor" style="display:none; border:2px solid #3498db; padding:20px; border-radius:8px; margin-top:10px;">
-            <h3 id="ed-title">底板录入</h3>
+            <h3 id="ed-title">底板录入/编辑</h3>
             <input type="hidden" id="ed-id">
             名称: <input type="text" id="ed-name" style="width:200px; padding:5px;">
             <div id="day-inputs" style="display:grid; grid-template-columns: repeat(11, 1fr); gap:10px; margin:15px 0;"></div>
@@ -72,7 +73,7 @@
 </div>
 
 <script>
-    const API = 'http://localhost:8181/api/status';
+    const API = 'http://192.168.0.100:8181/api/status';
     let curP = 1, totalP = 1;
 
     const toggleLoader = (s) => document.getElementById('loading-overlay').style.display = s ? 'flex' : 'none';
@@ -85,19 +86,14 @@
         if(t === 'manage') loadTemplates();
     }
 
-    // 导出合格门店 (列表格式)
-    function exportQualifiedList() {
-        window.location.href = `${API}/export-qualified-list?ym=${document.getElementById('ym').value}`;
-    }
-
-    // 导出异常门店 (大表矩阵格式)
-    function exportExceptionMatrix() {
-        window.location.href = `${API}/export-exception-matrix?ym=${document.getElementById('ym').value}`;
+    function exportFile(type) {
+        const ym = document.getElementById('ym').value;
+        window.location.href = `${API}/export-${type}?ym=${ym}`;
     }
 
     function renderMatrix(data) {
         const wrap = document.getElementById('wrapper-audit');
-        if (!data.records?.length) return wrap.innerHTML = "<p style='padding:20px; text-align:center;'>无配送数据</p>";
+        if (!data.records?.length) return wrap.innerHTML = "<p style='padding:20px; text-align:center;'>暂无数据</p>";
         let h = `<table><thead><tr><th class="shop-col">门店ID</th><th>底板</th>`;
         for(let d=1; d<=data.days; d++) h += `<th>${d}</th>`;
         h += `</tr></thead><tbody>`;
@@ -128,10 +124,11 @@
         toggleLoader(false);
     }
 
+    // --- 底板逻辑略 (与前文保持一致) ---
     async function loadTemplates() {
         const ym = document.getElementById('m_ym').value;
         const list = await (await fetch(`${API}/templates?ym=${ym}`)).json();
-        let h = `<table><thead><tr><th>底板名称</th><th>操作</th></tr></thead><tbody>`;
+        let h = `<table><thead><tr><th>名称</th><th>操作</th></tr></thead><tbody>`;
         list.forEach(t => h += `<tr><td>${t.templateName}</td><td><button onclick='editT(${JSON.stringify(t)})'>编辑</button> <button onclick='delT(${t.id})'>删除</button></td></tr>`);
         document.getElementById('template-list').innerHTML = h + `</tbody></table>`;
     }
@@ -159,28 +156,19 @@
     }
 
     async function saveTemplate() {
-        const body = {
-            id: document.getElementById('ed-id').value || null,
-            templateName: document.getElementById('ed-name').value,
-            yearMonth: document.getElementById('m_ym').value,
-            config: Array.from(document.querySelectorAll('.d-v')).map(i => i.value).join(',')
-        };
+        const body = { id: document.getElementById('ed-id').value || null, templateName: document.getElementById('ed-name').value, yearMonth: document.getElementById('m_ym').value, config: Array.from(document.querySelectorAll('.d-v')).map(i => i.value).join(',') };
         await fetch(`${API}/template`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
         document.getElementById('editor').style.display = 'none'; loadTemplates();
     }
 
-    async function delT(id) {
-        if(confirm("确定删除？")) { await fetch(`${API}/template/${id}`, { method:'DELETE' }); loadTemplates(); }
-    }
-
+    async function delT(id) { if(confirm("确定删除？")) { await fetch(`${API}/template/${id}`, { method:'DELETE' }); loadTemplates(); } }
     const changePage = (s) => { if(curP+s > 0 && curP+s <= totalP) { curP+=s; loadData('report'); } }
 
     async function uploadCsv() {
-        const fd = new FormData();
-        fd.append("file", document.getElementById('csv-file').files[0]);
-        fd.append("ym", document.getElementById('ym').value);
-        toggleLoader(true);
-        await fetch(`${API}/upload-csv`, { method: 'POST', body: fd });
+        const fileInput = document.getElementById('csv-file');
+        if(!fileInput.files[0]) return alert("请先选择CSV文件");
+        const fd = new FormData(); fd.append("file", fileInput.files[0]); fd.append("ym", document.getElementById('ym').value);
+        toggleLoader(true); await fetch(`${API}/upload-csv`, { method: 'POST', body: fd });
         toggleLoader(false); loadData('report');
     }
 
