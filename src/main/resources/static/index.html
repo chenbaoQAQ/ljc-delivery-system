@@ -2,18 +2,18 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>老乡鸡配送审计看板 - 专业日期版</title>
+    <title>老乡鸡配送审计看板 - 需求修正版</title>
     <style>
         body { font-family: 'Microsoft YaHei', sans-serif; padding: 20px; background: #f4f7f9; }
         .card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 0 auto; max-width: 100%; }
         .tabs { display: flex; gap: 15px; margin-bottom: 20px; border-bottom: 2px solid #eee; }
         .tab-btn { padding: 10px 20px; cursor: pointer; border: none; background: none; font-weight: bold; color: #7f8c8d; }
         .tab-btn.active { color: #3498db; border-bottom: 3px solid #3498db; }
-        .toolbar { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; background: #f8f9fa; padding: 15px; border-radius: 8px; }
+        .toolbar { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; background: #f8f9fa; padding: 15px; border-radius: 8px; flex-wrap: wrap; }
         .stat-bar { display: flex; gap: 25px; margin-bottom: 15px; padding: 12px 20px; background: #fff; border-radius: 8px; border-left: 5px solid #3498db; }
         .stat-item { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: bold; }
         .btn { padding: 8px 16px; cursor: pointer; border: none; border-radius: 4px; color: #fff; font-weight: bold; }
-        .btn-blue { background: #3498db; } .btn-red { background: #e74c3c; } .btn-green { background: #2ecc71; } .btn-cyan { background: #00bcd4; }
+        .btn-blue { background: #3498db; } .btn-red { background: #e74c3c; } .btn-green { background: #2ecc71; } .btn-cyan { background: #00bcd4; } .btn-orange { background: #e67e22; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
         th, td { border: 1px solid #edf2f7; padding: 8px; text-align: center; white-space: nowrap; }
         th { background: #f7fafc; position: sticky; top: 0; z-index: 10; }
@@ -23,7 +23,7 @@
     </style>
 </head>
 <body>
-<div id="loading-overlay"><div><p>🚀 正在处理数据...</p></div></div>
+<div id="loading-overlay"><div><p>🚀 正在处理中...</p></div></div>
 <div class="card">
     <div class="tabs">
         <button class="tab-btn active" id="tab-audit" onclick="switchTab('audit')">🔍 审计看板</button>
@@ -34,14 +34,15 @@
         <div class="toolbar">
             月份：<input type="text" id="ym" value="2024-03" style="width:100px">
             <button class="btn btn-blue" onclick="loadData('report')">🔍 看板大表</button>
-            <button class="btn btn-red" onclick="loadData('exception')">🔴 异常整改清单</button>
-            <button class="btn btn-cyan" onclick="exportQualified()">📥 导出合格门店</button>
+            <button class="btn btn-red" onclick="loadData('exception')">🔴 异常清单大表</button>
+            <button class="btn btn-cyan" onclick="exportQualifiedList()">📥 导出合格明细 (列表)</button>
+            <button class="btn btn-orange" onclick="exportExceptionMatrix()">📥 导出异常门店 (大表)</button>
             <div style="flex-grow: 1;"></div>
             <input type="file" id="csv-file">
             <button class="btn btn-green" onclick="uploadCsv()">导入数据</button>
         </div>
         <div class="stat-bar">
-            <div class="stat-item">总门店数: <span id="stat-total" style="color:#2c3e50">-</span></div>
+            <div class="stat-item">总门店数: <span id="stat-total">-</span></div>
             <div class="stat-item">✅ 合格门店: <span id="stat-ok" style="color:#2ecc71">-</span></div>
             <div class="stat-item">❌ 异常门店: <span id="stat-err" style="color:#e74c3c">-</span></div>
         </div>
@@ -84,8 +85,14 @@
         if(t === 'manage') loadTemplates();
     }
 
-    function exportQualified() {
-        window.location.href = `${API}/export-qualified?ym=${document.getElementById('ym').value}`;
+    // 导出合格门店 (列表格式)
+    function exportQualifiedList() {
+        window.location.href = `${API}/export-qualified-list?ym=${document.getElementById('ym').value}`;
+    }
+
+    // 导出异常门店 (大表矩阵格式)
+    function exportExceptionMatrix() {
+        window.location.href = `${API}/export-exception-matrix?ym=${document.getElementById('ym').value}`;
     }
 
     function renderMatrix(data) {
@@ -135,11 +142,10 @@
         renderDays();
     }
 
-    // 关键修正：根据选中月份动态生成天数输入框
     function renderDays(cfg = null) {
         const ym = document.getElementById('m_ym').value;
         const parts = ym.split('-');
-        const days = new Date(parts[0], parts[1], 0).getDate(); // 获取真实天数
+        const days = new Date(parts[0], parts[1], 0).getDate();
         let h = '';
         const configArr = cfg ? cfg : [];
         for(let i=1; i<=days; i++) h += `<div>${i}<br><input type='text' class='d-v' style='width:25px; text-align:center;' value='${configArr[i-1] || 0}'></div>`;

@@ -35,18 +35,14 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
 
     public void deleteTemplate(Integer id) { templateMapper.deleteById(id); }
 
-    // --- 自动化审计报表 ---
     public Map<String, Object> getAutoAuditReport(String ym, int current, int size) {
         List<DeliveryTemplate> templates = getTemplatesByMonth(ym);
         Page<Map<String, Object>> idPage = baseMapper.selectMapsPage(new Page<>(current, size),
                 new QueryWrapper<DeliveryDetail>().select("distinct shop_id").likeRight("date", ym).orderByAsc("shop_id"));
-
         List<String> shopIds = idPage.getRecords().stream().map(m -> m.get("shop_id").toString()).toList();
         if (shopIds.isEmpty()) return Collections.emptyMap();
 
         Map<String, Object> res = buildAuditMatrix(ym, shopIds, templates);
-
-        // 全局统计
         List<Map<String, Object>> allStatus = baseMapper.selectMonthlyDeliveryStatus(ym);
         Map<String, Map<Integer, Integer>> allShopData = groupShopData(allStatus);
         int days = (int) res.get("days");
@@ -63,12 +59,11 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
         return res;
     }
 
-    // --- 全局异常矩阵 ---
     public Map<String, Object> getGlobalExceptionMatrix(String ym) {
         List<DeliveryTemplate> templates = getTemplatesByMonth(ym);
         List<Map<String, Object>> allStatus = baseMapper.selectMonthlyDeliveryStatus(ym);
         Map<String, Map<Integer, Integer>> shopData = groupShopData(allStatus);
-        int days = YearMonth.parse(ym).lengthOfMonth(); // 动态获取天数
+        int days = YearMonth.parse(ym).lengthOfMonth();
 
         List<Map<String, Object>> exceptions = shopData.entrySet().stream()
                 .map(e -> processAuditRow(e.getKey(), e.getValue(), templates, days))
@@ -78,8 +73,31 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
         return Map.of("records", exceptions, "days", days);
     }
 
-    // --- 导出合格门店 CSV ---
+    // --- 导出：正常门店 (列表格式) ---
     public String exportQualifiedShopsCsv(String ym) {
+        List<DeliveryTemplate> templates = getTemplatesByMonth(ym);
+        List<Map<String, Object>> allStatus = baseMapper.selectMonthlyDeliveryStatus(ym);
+        Map<String, Map<Integer, Integer>> shopData = groupShopData(allStatus);
+        int days = YearMonth.parse(ym).lengthOfMonth();
+
+        StringBuilder csv = new StringBuilder("\uFEFF门店ID,日期,审计状态\n");
+        shopData.forEach((sid, actuals) -> {
+            Map<String, Object> row = processAuditRow(sid, actuals, templates, days);
+            if (!(boolean) row.get("hasError")) {
+                String sign = row.get("bestTemplate").toString().substring(0, 1);
+                for (int d = 1; d <= days; d++) {
+                    String dateStr = ym + "-" + String.format("%02d", d);
+                    // 正常门店每一天都是符合底板的
+                    int act = actuals.getOrDefault(d, 0) > 0 ? 1 : 0;
+                    csv.append(sid).append(",").append(dateStr).append(",").append(act).append(sign).append("\n");
+                }
+            }
+        });
+        return csv.toString();
+    }
+
+    // --- 导出：异常门店 (大表矩阵格式) ---
+    public String exportExceptionMatrixCsv(String ym) {
         List<DeliveryTemplate> templates = getTemplatesByMonth(ym);
         List<Map<String, Object>> allStatus = baseMapper.selectMonthlyDeliveryStatus(ym);
         Map<String, Map<Integer, Integer>> shopData = groupShopData(allStatus);
@@ -91,7 +109,7 @@ public class ShopDeliveryService extends ServiceImpl<DeliveryDetailMapper, Deliv
 
         shopData.forEach((sid, actuals) -> {
             Map<String, Object> row = processAuditRow(sid, actuals, templates, days);
-            if (!(boolean) row.get("hasError")) {
+            if ((boolean) row.get("hasError")) {
                 csv.append(sid).append(",").append(row.get("bestTemplate"));
                 for (int d = 1; d <= days; d++) csv.append(",").append(row.get("day" + d));
                 csv.append("\n");
